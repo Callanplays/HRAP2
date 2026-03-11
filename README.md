@@ -31,8 +31,5 @@ In its current state this program can model an adiabatic oxidizer tank and combu
 HRAP could be significantly improved by some helpful volunteers in the following categories: 
 - Non-equilibrium tank model
 - Two-phase injector model
-- Non-cylindrical ports
-- Option to export a .eng engine file for use in OpenRocket
+- GUI for Non-cylindrical ports (currently Python API only)
 - More config files describing burn characteristics of different propellants
-- Potentially a shift from look-up tables of propellant data to integrating NASA's CEA tool into the combustion modeling
-- integrating CoolProp for thermodynamic modeling
