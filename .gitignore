@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+.mypy_cache/
+data/
+hrap_gui_launch.log
+hrap_gui_launch.out
+src/hrap/resources/propellants/50P.json
+src/hrap/resources/propellants/Metalized Plastisol.json

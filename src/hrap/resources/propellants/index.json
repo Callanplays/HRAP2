@@ -1,0 +1,34 @@
+[
+  {
+    "id": "ABS",
+    "name": "ABS"
+  },
+  {
+    "id": "Asphalt",
+    "name": "Asphalt"
+  },
+  {
+    "id": "HDPE",
+    "name": "HDPE"
+  },
+  {
+    "id": "HTPB",
+    "name": "HTPB"
+  },
+  {
+    "id": "HTPB_Paraffin",
+    "name": "50P"
+  },
+  {
+    "id": "Metalized_Plastisol",
+    "name": "Metalized Plastisol"
+  },
+  {
+    "id": "Paraffin",
+    "name": "Paraffin"
+  },
+  {
+    "id": "Sorbitol",
+    "name": "Sorbitol"
+  }
+]

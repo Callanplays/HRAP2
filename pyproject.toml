@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hrap"
+version = "1.0.0"
+description = "HRAP (HCAT Fork) 1.0.0 — Hybrid Rocket Analysis Program with a MATLAB-parity engine and dark-mode desktop UI."
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Robert A. Nickel" },
+    { name = "Thomas A. Scott" },
+    { name = "Drew Nickel" },
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "PySide6",
+    "pyqtgraph",
+]
+
+[project.optional-dependencies]
+advanced = [
+    "coolprop",
+    "scikit-image",
+    "opencv-python",
+]
+dev = [
+    "pytest",
+]
+
+[project.scripts]
+hrap = "hrap.gui.main:main"
+hrap-compare = "hrap.cli:compare_main"
+
+[project.urls]
+Homepage = "https://github.com/sidbanch/HRAP2"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hrap"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/hrap/resources" = "hrap/resources"
+
+[tool.hatch.build]
+include = [
+    "src/hrap/**",
+    "LICENSE",
+    "README.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

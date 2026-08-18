@@ -1,0 +1,42 @@
+"""Optional CoolProp saturation properties (advanced mode, not MATLAB-identical)."""
+from __future__ import annotations
+
+import numpy as np
+
+from hrap.engine.types import OxProps
+
+
+def coolprop_sat(fluid: str, T_min: float | None = None, T_max: float | None = None, n: int = 80):
+    try:
+        import CoolProp.CoolProp as CP
+    except ImportError as exc:
+        raise ImportError("CoolProp is required for advanced fluids. pip install hrap[advanced]") from exc
+
+    if T_min is None:
+        T_min = CP.PropsSI("Tmin", fluid) + 1.0
+    if T_max is None:
+        T_max = min(CP.PropsSI("Tcrit", fluid) - 0.5, T_min + 200.0)
+    T_grid = np.linspace(T_min, T_max, n)
+    Pv = np.array([CP.PropsSI("P", "T", T, "Q", 0, fluid) for T in T_grid])
+    rho_l = np.array([CP.PropsSI("D", "T", T, "Q", 0, fluid) for T in T_grid])
+    rho_v = np.array([CP.PropsSI("D", "T", T, "Q", 1, fluid) for T in T_grid])
+    Hv = np.array(
+        [CP.PropsSI("H", "T", T, "Q", 1, fluid) - CP.PropsSI("H", "T", T, "Q", 0, fluid) for T in T_grid]
+    )
+    Cp = np.array([CP.PropsSI("CPMASS", "T", T, "Q", 0, fluid) for T in T_grid])
+    Z = np.array([CP.PropsSI("Z", "T", T, "Q", 1, fluid) for T in T_grid])
+
+    # Convert J to kJ so ratios match the MATLAB tank formulas' order of magnitude
+    # when mixing is not desired: keep SI (J, J/kg-K). Tank uses Hv/Cp which is K either way.
+    def get_sat_props(T: float) -> OxProps:
+        T = float(np.clip(T, T_grid[0], T_grid[-1]))
+        return OxProps(
+            Pv=float(np.interp(T, T_grid, Pv)),
+            rho_l=float(np.interp(T, T_grid, rho_l)),
+            rho_v=float(np.interp(T, T_grid, rho_v)),
+            Hv=float(np.interp(T, T_grid, Hv)),
+            Cp=float(np.interp(T, T_grid, Cp)),
+            Z=float(np.interp(T, T_grid, Z)),
+        )
+
+    return get_sat_props

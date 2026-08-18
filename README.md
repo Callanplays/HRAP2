@@ -1,35 +1,72 @@
-# HRAP_Source
-The Hybrid Rocket Analysis Program (HRAP) was developed by Robert Nickel for use by the University of Tennessee Rocket Engineering Team. HRAP is a versatile tool utilizing a thermodynamic equilibrium model for  simulation of self-pressurizing hybrid rocket motors, specifically those powered with Nitrous Oxide stored as a saturated liquid-vapor mixture. 
+# HRAP (HCAT Fork) 1.0.0
 
-## Python - Hybrid Rocket Analysis Program
-Navigate to the "HRAP - Python" directory for installation and usage instructions.
+**HRAP (HCAT Fork)** is a desktop Hybrid Rocket Analysis Program. It is a fork of the original MATLAB [HRAP](https://github.com/rnickel1/HRAP_Source) by Robert Nickel (University of Tennessee Rocket Engineering Team).
 
-## MATLAB - Hybrid Rocket Analysis Program
-Navigate to the "Installers/MATLAB version" directory. Prerequisites for the installation include having the MATLAB runtime installed (free.) and in order to save/export data the application needs to be run as administrator.
+Version **1.0.0** ships a Python app whose default engine is a line-for-line port of the MATLAB sequential Euler loop (self-pressurizing N2O tank, tabulated combustion chemistry, isentropic nozzle). Optional CoolProp / non-cylindrical grain features are labeled as **not** MATLAB-identical.
 
-## Validation Cases:
-Baltic Space HyPEx hot fire (r/rocketry user FlyingBanana)
+## Run
 
-![image](https://github.com/user-attachments/assets/4e048de8-12b3-4299-89f5-ec4241b3ccb2)
+Requires **Python 3.10+**.
 
-Equatorial Space Systems 750 N subscale demonstrator (James Anderson)
+### Windows
 
-![image](https://github.com/user-attachments/assets/63330cf6-2fe3-4712-a0ec-310baa33e389)
+Double-click `run_hrap.bat` (or `Run HRAP.bat` in the parent folder). The first launch installs dependencies if needed.
 
-Student Space Technology Association 38mm Subscale Motor
+### From a terminal
 
-![image](https://github.com/user-attachments/assets/508ee5ae-4a46-4c41-8743-3ec823128cfe)
+```
+cd HRAP2
+python -m pip install -e .
+python -m hrap
+```
 
-Student Space Technology Association 127mm Flight Motor
+The window title is **HRAP (HCAT Fork) 1.0.0**. Edit the motor on the left, press **Run**, then inspect traces, the scaled motor schematic, and the performance summary on the right.
 
-![image](https://github.com/user-attachments/assets/89afa8e9-32a9-4057-92d3-aaae7cde900f)
+## Batch / CLI
 
-## Call for volunteers!
+```
+python -m hrap.cli path/to/motor.json -o HRAP_output.csv
+hrap-compare path/to/motor.json tests/golden/example_98mm_python.csv
+```
 
-In its current state this program can model an adiabatic oxidizer tank and combustion chamber and an isentropic nozzle, along with semi-empirical correction factors such as combustion/nozzle efficiency. HRAP also allows the exporting of a .RSE engine file for use in OpenRocket or RockSim, which allows not only the mass of the motor to be captured but also the approximate center of mass of the motor.
+Save and load motors as JSON, import original MATLAB `.mat` configs, and export **CSV**, **RSE** (OpenRocket / RockSim), or **ENG**.
 
-HRAP could be significantly improved by some helpful volunteers in the following categories: 
-- Non-equilibrium tank model
-- Two-phase injector model
-- GUI for Non-cylindrical ports (currently Python API only)
-- More config files describing burn characteristics of different propellants
+## Optional extras
+
+```
+python -m pip install -e ".[advanced]"
+```
+
+enables CoolProp oxidizers and star-grain geometry. Turning these on in the GUI warns that results will not match original HRAP.
+
+## Tests
+
+```
+python -m pip install -e ".[dev]"
+python -m pytest
+```
+
+Golden traces live in `tests/golden/`. Component tests (NOX, interp2x) and the evaporating-liquid prefix of a full burn match MATLAB to **1e-8**.
+
+To regenerate MATLAB comparison CSVs (R2020b or later; Octave can run the same `.m` core files):
+
+```
+cd scripts
+python download_assets.py
+python convert_assets.py
+matlab -batch "make_matlab_golden"
+python -m pytest tests -q
+```
+
+## Repository layout
+
+| Path | What it is |
+| --- | --- |
+| `src/hrap/` | Default Python engine + PySide6 GUI |
+| `tests/` | Unit tests and golden CSV traces |
+| `HRAP - Matlab/` | Frozen original MATLAB sources |
+| `HRAP - Python/` | Earlier JAX / Dear PyGui experiment (not the default engine) |
+
+## License
+
+GNU GPL v3. See `LICENSE`. This fork remains GPL because it is based on the original HRAP sources.

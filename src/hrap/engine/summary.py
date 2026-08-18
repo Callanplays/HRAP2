@@ -1,0 +1,73 @@
+"""Performance summary matching MATLAB HRAP results panel."""
+from __future__ import annotations
+
+import numpy as np
+
+from hrap.engine.impulse import impulse_class
+from hrap.engine.types import Output, Settings, State
+
+
+def summarize(s: Settings, x: State, o: Output) -> dict:
+    mask = o.F_thr > 0
+    if np.any(mask):
+        total_impulse = float(np.trapezoid(o.F_thr[mask], o.t[mask]))
+        burn_time = float(o.t[mask][-1])
+        peak_thrust = float(np.max(o.F_thr))
+        avg_thrust = float(np.mean(o.F_thr[mask]))
+    else:
+        total_impulse = burn_time = peak_thrust = avg_thrust = 0.0
+    motor_class, percent = impulse_class(total_impulse)
+    if not isinstance(motor_class, str):
+        motor_class, percent = "—", 0.0
+    peak_pressure = float(np.max(o.P_cmbr) / 1e5) if o.P_cmbr.size else 0.0
+    avg_pressure = float(np.mean(o.P_cmbr[o.P_cmbr > 0]) / 1e5) if np.any(o.P_cmbr > 0) else 0.0
+    fuel_consumed = float(o.m_f[0] - o.m_f[-1]) if o.m_f.size else 0.0
+    ox_consumed = float(o.m_o[0] - o.m_o[-1]) if o.m_o.size else 0.0
+    avg_OF = ox_consumed / fuel_consumed if fuel_consumed else 0.0
+    int_pressure = float(np.trapezoid(o.P_cmbr, o.t)) if o.t.size > 1 else 0.0
+    Ath = 0.25 * np.pi * s.noz_thrt ** 2
+    cstar = int_pressure * Ath / (fuel_consumed + ox_consumed) if (fuel_consumed + ox_consumed) else 0.0
+    isp = total_impulse / ((ox_consumed + fuel_consumed) * 9.81) if (ox_consumed + fuel_consumed) else 0.0
+    port_cm = float(x.grn_ID * 100.0)
+    return {
+        "name": s.mtr_nm,
+        "propellant": s.prop_nm,
+        "tnk_V_cc": s.tnk_V * 1e6,
+        "burn_time": burn_time,
+        "peak_thrust": peak_thrust,
+        "avg_thrust": avg_thrust,
+        "total_impulse": total_impulse,
+        "peak_pressure_bar": peak_pressure,
+        "avg_pressure_bar": avg_pressure,
+        "port_cm": port_cm,
+        "fuel_consumed": fuel_consumed,
+        "ox_consumed": ox_consumed,
+        "avg_OF": avg_OF,
+        "cstar": cstar,
+        "isp": isp,
+        "impulse_class": motor_class,
+        "impulse_percent": percent,
+        "end_cond": o.sim_end_cond,
+    }
+
+
+def format_summary(info: dict) -> str:
+    return (
+        f"Motor Name: {info['name']}\n"
+        f"    Propellant: {info['propellant']}\n"
+        f"    Oxidizer Tank Volume: {info['tnk_V_cc']:.0f} cc\n"
+        f"    Burn Time: {info['burn_time']:.3f} s\n"
+        f"    Peak Thrust: {info['peak_thrust']:.1f} N\n"
+        f"    Average Thrust: {info['avg_thrust']:.1f} N\n"
+        f"    Total Impulse: {info['total_impulse']:.2f} N-s\n"
+        f"    Peak Chamber Pressure: {info['peak_pressure_bar']:.3f} bar\n"
+        f"    Average Chamber Pressure: {info['avg_pressure_bar']:.3f} bar\n"
+        f"    Port Diameter at Burnout: {info['port_cm']:.3f} cm\n"
+        f"    Fuel Consumed: {info['fuel_consumed']:.3f} kg\n"
+        f"    Oxidizer Consumed: {info['ox_consumed']:.3f} kg\n"
+        f"    Average OF Ratio: {info['avg_OF']:.3f}\n"
+        f"    Characteristic Velocity: {info['cstar']:.1f} m/s\n"
+        f"    Specific Impulse: {info['isp']:.1f} s\n"
+        f"    Motor Classification: {info['impulse_percent']:3.0f}% {info['impulse_class']}{info['avg_thrust']:.0f}\n"
+        f"    Simulation Termination Condition: {info['end_cond']}"
+    )
