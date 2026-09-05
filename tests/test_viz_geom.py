@@ -26,6 +26,35 @@ def test_plate_and_injector_lengths():
     assert g.L_conv > 0
     assert g.L_div > g.L_conv  # 15° diverge is longer than 60° converge
     assert g.vnt_on
+    assert abs(g.x_tnk0 - 0.0) < 1e-12
+    assert abs(g.x_cmbr0 - g.x_tnk1) < 1e-12
+
+
+def test_explicit_starts_open_a_feed_gap():
+    m = MotorView(
+        tnk_L=0.20,
+        tnk_D=0.10,
+        grn_L=0.40,
+        grn_OD=0.08,
+        grn_ID=0.04,
+        inj_D=0.006,
+        inj_N=3,
+        vnt_state="Internal",
+        vnt_D=0.002,
+        noz_thrt=0.025,
+        noz_exit=0.05,
+        fill_frac=0.9,
+        tnk_start=0.05,
+        cmbr_start=0.40,
+        cmbr_L=0.55,
+        tnk_dry_kg=4.0,
+        cmbr_dry_kg=6.0,
+    )
+    g = _geom(m)
+    assert abs(g.x_tnk0 - 0.05) < 1e-12
+    assert abs(g.x_cmbr0 - 0.40) < 1e-12
+    assert g.x_cmbr0 > g.x_tnk1
+    assert g.x_min == g.x_tnk0
 
 
 def test_liquid_sits_on_the_right():

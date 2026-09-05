@@ -1,12 +1,12 @@
-# HRAP (HCAT Fork) 1.0.0
+# HRAP (HCAT Fork) 1.1.0
 
 **HRAP (HCAT Fork)** is a desktop Hybrid Rocket Analysis Program. It is a fork of the original MATLAB [HRAP](https://github.com/rnickel1/HRAP_Source) by Robert Nickel (University of Tennessee Rocket Engineering Team).
 
-Version **1.0.0** ships a Python app whose default engine is a line-for-line port of the MATLAB sequential Euler loop (self-pressurizing N2O tank, tabulated combustion chemistry, isentropic nozzle). Optional CoolProp / non-cylindrical grain features are labeled as **not** MATLAB-identical.
+Version **1.1.0** keeps the MATLAB-parity engine and adds tank / thrust-chamber dry mass, length, and start-station inputs for center-of-mass (used by `.eng` / `.rse` export and the motor schematic). The default ballistics loop is still a line-for-line port of the MATLAB sequential Euler integrator. Optional CoolProp / non-cylindrical grain features are labeled as **not** MATLAB-identical.
 
 ## Windows executable
 
-Download the versioned zip from [Releases](https://github.com/sidbanch/HRAP2/releases) (`HRAP-HCAT-Fork-1.0.0-windows.zip` for this release). Unzip and run `HRAP.exe`. No Python install is required.
+Download the versioned zip from [Releases](https://github.com/sidbanch/HRAP2/releases) (`HRAP-HCAT-Fork-<version>-windows.zip`). Unzip and run `HRAP.exe`. No Python install is required.
 
 Later versions use the same naming: `HRAP-HCAT-Fork-<version>-windows.zip` on the matching GitHub Release.
 

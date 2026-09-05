@@ -7,7 +7,7 @@ import pytest
 
 from hrap.engine.sim import run
 from hrap.io.config import bundled_motor, default_cfg, resolve, save_json
-from hrap.io.export import export_csv, export_rse
+from hrap.io.export import export_csv, export_eng, export_rse
 from hrap.io.propellant import list_propellants, load_propellant
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -46,6 +46,9 @@ def test_example_98mm_const_of_runs(tmp_path):
     export_rse(tmp_path / "m.rse", o, s)
     text = (tmp_path / "m.rse").read_text(encoding="utf-8")
     assert "cg=" in text
+    export_eng(tmp_path / "m.eng", o, s)
+    eng = (tmp_path / "m.eng").read_text(encoding="utf-8")
+    assert "cg0=" in eng
     info_path = GOLDEN / "example_98mm_python.csv"
     assert info_path.exists()
 

@@ -12,6 +12,13 @@ import numpy as np
 from hrap.engine.nox import nox
 from hrap.engine.types import Settings, State
 from hrap.io.propellant import load_propellant
+from hrap.layout import (
+    MotorLayout,
+    default_chamber_length,
+    infer_component_stations,
+    motor_layout,
+    nozzle_exit_diameter,
+)
 from hrap.units import to_si
 
 VENT_MAP = {"None": 0, "External": 1, "Internal": 2, 0: 0, 1: 1, 2: 2}
@@ -39,13 +46,23 @@ def default_cfg() -> dict[str, Any]:
         "noz_eff": 97.0,
         "noz_Cd": 0.95,
         "mp_state": 1,
-        "tnk_X": 72.54685,
+        "tnk_start": 0.0,
+        "tnk_start_unit": "in",
+        "cmbr_start": 0.0,
+        "cmbr_start_unit": "in",
+        "cmbr_L": 0.0,
+        "cmbr_L_unit": "in",
+        "tnk_m": 0.0,
+        "tnk_m_unit": "kg",
+        "cmbr_m": 0.0,
+        "cmbr_m_unit": "kg",
+        "tnk_X": 0.0,
         "tnk_X_unit": "in",
-        "cmbr_X": 91.635,
+        "cmbr_X": 0.0,
         "cmbr_X_unit": "in",
-        "mtr_cg": 52.33018,
+        "mtr_cg": 0.0,
         "mtr_cg_unit": "in",
-        "mtr_m": 9.47769,
+        "mtr_m": 0.0,
         "mtr_m_unit": "kg",
         "tnk_dd": "Starting Tank Temperature",
         "tnk_cond": 293.15,
@@ -112,10 +129,6 @@ def _merge_cfg(data: dict[str, Any]) -> dict[str, Any]:
     return cfg
 
 
-def save_json(path: str | Path, cfg: dict[str, Any]) -> None:
-    Path(path).write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-
-
 def load_matlab_mat(path: str | Path) -> dict[str, Any]:
     import scipy.io
 
@@ -138,6 +151,71 @@ def load_matlab_mat(path: str | Path) -> dict[str, Any]:
 
 def _u(cfg: dict, field_unit: str, group: str) -> float:
     return to_si(1.0, cfg[field_unit], group) if not isinstance(cfg[field_unit], (int, float)) else float(cfg[field_unit])
+
+
+def _len(cfg: dict[str, Any], name: str, default: float = 0.0) -> float:
+    if name not in cfg or cfg[name] is None:
+        return default
+    unit = cfg.get(f"{name}_unit") or "m"
+    return float(cfg[name]) * to_si(1.0, unit, "length")
+
+
+def _mass(cfg: dict[str, Any], name: str, default: float = 0.0) -> float:
+    if name not in cfg or cfg[name] is None:
+        return default
+    unit = cfg.get(f"{name}_unit") or "kg"
+    return float(cfg[name]) * to_si(1.0, unit, "mass")
+
+
+def resolve_layout(cfg: dict[str, Any]) -> MotorLayout:
+    """Hardware stations and dry masses used for CG, ENG/RSE length, and the schematic."""
+    grn_OD = _len(cfg, "grn_OD")
+    grn_L = _len(cfg, "grn_L")
+    tnk_D = _len(cfg, "tnk_D")
+    tnk_L = _len(cfg, "tnk_L")
+    if int(cfg.get("tnk_V_state", 0)):
+        tnk_V = tnk_L * 0.25 * math.pi * tnk_D ** 2
+    else:
+        tnk_V = float(cfg.get("tnk_V") or 0.0) * to_si(1.0, cfg.get("tnk_V_unit") or "m^3", "volume")
+    noz_thrt = _len(cfg, "noz_thrt")
+    if cfg.get("noz_def") == "Nozzle Exit Diameter":
+        noz_exit = float(cfg.get("noz_ex") or 0.0) * to_si(1.0, cfg.get("noz_ex_unit") or "in", "length")
+    else:
+        noz_exit = nozzle_exit_diameter(noz_thrt, float(cfg.get("noz_ex") or 1.0))
+    if tnk_L <= 1e-9 and tnk_D > 0 and tnk_V > 0:
+        tnk_L = tnk_V / (0.25 * math.pi * tnk_D ** 2)
+    auto_cmbr = default_chamber_length(grn_OD, grn_L, noz_thrt, noz_exit)
+    tnk_start, cmbr_start, cmbr_L = infer_component_stations(
+        tnk_start=_len(cfg, "tnk_start"),
+        cmbr_start=_len(cfg, "cmbr_start"),
+        cmbr_L=_len(cfg, "cmbr_L"),
+        tnk_L=tnk_L,
+        grn_L=grn_L,
+        tnk_X=_len(cfg, "tnk_X"),
+        cmbr_X=_len(cfg, "cmbr_X"),
+        auto_cmbr_L=auto_cmbr,
+    )
+    return motor_layout(
+        tnk_start=tnk_start,
+        tnk_L=tnk_L,
+        tnk_m=_mass(cfg, "tnk_m"),
+        cmbr_start=cmbr_start,
+        cmbr_L=cmbr_L,
+        cmbr_m=_mass(cfg, "cmbr_m"),
+        grn_L=grn_L,
+        grn_OD=grn_OD,
+        noz_thrt=noz_thrt,
+        noz_exit=noz_exit,
+    )
+
+
+def apply_layout_mass(cfg: dict[str, Any], lay: MotorLayout) -> tuple[float, float, float, float]:
+    """Return (mtr_m, mtr_cg, tnk_X, cmbr_X) in SI. Component dry mass replaces lumped empty mass."""
+    legacy_m = _mass(cfg, "mtr_m")
+    legacy_cg = _len(cfg, "mtr_cg")
+    if lay.dry_mass > 0.0:
+        return lay.dry_mass, lay.dry_cg, lay.tnk_aft, lay.grain_aft
+    return legacy_m, legacy_cg, lay.tnk_aft, lay.grain_aft
 
 
 def resolve(cfg: dict[str, Any], get_sat_props=None) -> tuple[Settings, State]:
@@ -186,10 +264,8 @@ def resolve(cfg: dict[str, Any], get_sat_props=None) -> tuple[Settings, State]:
     vnt_CdA = 0.25 * math.pi * vnt_D ** 2 * float(cfg.get("vnt_Cd") or 0.0)
 
     mp_calc = 1 if cfg.get("mp_state") else 0
-    mtr_m = cfg["mtr_m"] * to_si(1.0, cfg["mtr_m_unit"], "mass")
-    mtr_cg = cfg["mtr_cg"] * to_si(1.0, cfg["mtr_cg_unit"], "length")
-    tnk_X = cfg["tnk_X"] * to_si(1.0, cfg["tnk_X_unit"], "length")
-    cmbr_X = cfg["cmbr_X"] * to_si(1.0, cfg["cmbr_X_unit"], "length")
+    lay = resolve_layout(cfg)
+    mtr_m, mtr_cg, tnk_X, cmbr_X = apply_layout_mass(cfg, lay)
 
     rho = cfg["prop_rho"] * to_si(1.0, cfg["prop_rho_unit"], "density")
     reg = np.array([float(cfg["prop_a"]), float(cfg["prop_n"]), float(cfg["prop_m"])], dtype=float)

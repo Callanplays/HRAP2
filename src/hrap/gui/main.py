@@ -44,9 +44,10 @@ from hrap.engine.sim import run
 from hrap.engine.summary import format_summary, summarize
 from hrap.gui.theme import apply_theme
 from hrap.gui.viz import MotorPanel, MotorView
-from hrap.io.config import bundled_motor, default_cfg, load_json, load_matlab_mat, resolve, save_json
+from hrap.io.config import bundled_motor, default_cfg, load_json, load_matlab_mat, resolve, resolve_layout, save_json
 from hrap.io.export import export_csv, export_eng, export_rse
 from hrap.io.propellant import list_propellants, load_propellant
+from hrap.layout import motor_layout
 from hrap.units import (
     DENSITY_ITEMS,
     LENGTH_ITEMS,
@@ -454,23 +455,32 @@ class MainWindow(QMainWindow):
         iff.addRow("Vent Cd", self.vnt_Cd)
         root.addWidget(inj)
 
-        self.mp_on = QCheckBox("Calculate mass properties (RSE CG)")
-        self.tnk_X = UnitRow(LENGTH_ITEMS, "in")
-        self.cmbr_X = UnitRow(LENGTH_ITEMS, "in")
-        self.mtr_cg = UnitRow(LENGTH_ITEMS, "in")
-        self.mtr_m = UnitRow(MASS_ITEMS, "kg")
+        self.mp_on = QCheckBox("Calculate mass properties (ENG / RSE CG)")
+        self.tnk_start = UnitRow(LENGTH_ITEMS, "in")
+        self.tnk_m = UnitRow(MASS_ITEMS, "kg")
+        self.cmbr_start = UnitRow(LENGTH_ITEMS, "in")
+        self.cmbr_L = UnitRow(LENGTH_ITEMS, "in")
+        self.cmbr_m = UnitRow(MASS_ITEMS, "kg")
         self.dry_OD = UnitRow(LENGTH_ITEMS, "in")
         self.dry_L = UnitRow(LENGTH_ITEMS, "in")
+        self.mass_info = QLabel("Empty mass / CG: —")
+        self.mass_info.setWordWrap(True)
         mass = CollapsibleBox("Mass properties")
         mf = mass.form()
         mf.addRow(self.mp_on)
-        mf.addRow("Tank location", self.tnk_X)
-        mf.addRow("Grain location", self.cmbr_X)
-        mf.addRow("Empty CG", self.mtr_cg)
-        mf.addRow("Empty mass", self.mtr_m)
+        mf.addRow("Oxidizer tank start", self.tnk_start)
+        mf.addRow("Oxidizer tank dry mass", self.tnk_m)
+        mf.addRow("Chamber start", self.cmbr_start)
+        mf.addRow("Chamber length (incl. injector + nozzle)", self.cmbr_L)
+        mf.addRow("Chamber dry mass (no grain)", self.cmbr_m)
         mf.addRow("Motor OD (export)", self.dry_OD)
         mf.addRow("Motor length (export)", self.dry_L)
+        mf.addRow(self.mass_info)
         root.addWidget(mass)
+        self._legacy_mtr_m = 0.0
+        self._legacy_mtr_m_unit = "kg"
+        self._legacy_mtr_cg = 0.0
+        self._legacy_mtr_cg_unit = "in"
 
         self.tmax = PlainDoubleSpinBox(); self.tmax.setRange(0.01, 120); self.tmax.setValue(10)
         self.tburn = PlainDoubleSpinBox(); self.tburn.setRange(0.0, 120)
@@ -559,6 +569,8 @@ class MainWindow(QMainWindow):
         return box
 
     def _form_to_cfg(self) -> dict:
+        lay = self._form_layout()
+        empty_m, empty_cg = self._empty_mass_si(lay)
         cfg = default_cfg()
         cfg.update({
             "mtr_nm": self.name.text() or "mtr_cfg",
@@ -580,14 +592,24 @@ class MainWindow(QMainWindow):
             "noz_eff": self.noz_eff.value(),
             "noz_Cd": self.noz_Cd.value(),
             "mp_state": int(self.mp_on.isChecked()),
-            "tnk_X": self.tnk_X.spin.value(),
-            "tnk_X_unit": self.tnk_X.unit.currentText(),
-            "cmbr_X": self.cmbr_X.spin.value(),
-            "cmbr_X_unit": self.cmbr_X.unit.currentText(),
-            "mtr_cg": self.mtr_cg.spin.value(),
-            "mtr_cg_unit": self.mtr_cg.unit.currentText(),
-            "mtr_m": self.mtr_m.spin.value(),
-            "mtr_m_unit": self.mtr_m.unit.currentText(),
+            "tnk_start": self.tnk_start.spin.value(),
+            "tnk_start_unit": self.tnk_start.unit.currentText(),
+            "cmbr_start": self.cmbr_start.spin.value(),
+            "cmbr_start_unit": self.cmbr_start.unit.currentText(),
+            "cmbr_L": self.cmbr_L.spin.value(),
+            "cmbr_L_unit": self.cmbr_L.unit.currentText(),
+            "tnk_m": self.tnk_m.spin.value(),
+            "tnk_m_unit": self.tnk_m.unit.currentText(),
+            "cmbr_m": self.cmbr_m.spin.value(),
+            "cmbr_m_unit": self.cmbr_m.unit.currentText(),
+            "tnk_X": from_si(lay.tnk_aft, self.tnk_start.unit.currentText(), "length"),
+            "tnk_X_unit": self.tnk_start.unit.currentText(),
+            "cmbr_X": from_si(lay.grain_aft, self.cmbr_start.unit.currentText(), "length"),
+            "cmbr_X_unit": self.cmbr_start.unit.currentText(),
+            "mtr_cg": from_si(empty_cg, self.tnk_start.unit.currentText(), "length"),
+            "mtr_cg_unit": self.tnk_start.unit.currentText(),
+            "mtr_m": from_si(empty_m, self.tnk_m.unit.currentText(), "mass"),
+            "mtr_m_unit": self.tnk_m.unit.currentText(),
             "tnk_dd": self.tnk_dd.currentText(),
             "tnk_cond": self.tnk_cond.value(),
             "T_tnk_unit": self.T_tnk_unit.currentText(),
@@ -653,10 +675,16 @@ class MainWindow(QMainWindow):
         self.noz_eff.setValue(float(cfg.get("noz_eff") or 100))
         self.noz_Cd.setValue(float(cfg.get("noz_Cd") or 1))
         self.mp_on.setChecked(bool(cfg.get("mp_state")))
-        self.tnk_X.set_display(cfg.get("tnk_X", 0), cfg.get("tnk_X_unit", "in"))
-        self.cmbr_X.set_display(cfg.get("cmbr_X", 0), cfg.get("cmbr_X_unit", "in"))
-        self.mtr_cg.set_display(cfg.get("mtr_cg", 0), cfg.get("mtr_cg_unit", "in"))
-        self.mtr_m.set_display(cfg.get("mtr_m", 0), cfg.get("mtr_m_unit", "kg"))
+        self._legacy_mtr_m = float(cfg.get("mtr_m") or 0.0)
+        self._legacy_mtr_m_unit = str(cfg.get("mtr_m_unit") or "kg")
+        self._legacy_mtr_cg = float(cfg.get("mtr_cg") or 0.0)
+        self._legacy_mtr_cg_unit = str(cfg.get("mtr_cg_unit") or "in")
+        lay = resolve_layout(cfg)
+        self.tnk_start.set_display(from_si(lay.tnk0, cfg.get("tnk_start_unit") or "in", "length"), cfg.get("tnk_start_unit") or "in")
+        self.cmbr_start.set_display(from_si(lay.cmbr0, cfg.get("cmbr_start_unit") or "in", "length"), cfg.get("cmbr_start_unit") or "in")
+        self.cmbr_L.set_display(from_si(lay.cmbr_L, cfg.get("cmbr_L_unit") or "in", "length"), cfg.get("cmbr_L_unit") or "in")
+        self.tnk_m.set_display(cfg.get("tnk_m", 0), cfg.get("tnk_m_unit", "kg"))
+        self.cmbr_m.set_display(cfg.get("cmbr_m", 0), cfg.get("cmbr_m_unit", "kg"))
         self.tnk_dd.setCurrentText(cfg.get("tnk_dd") or "Starting Tank Temperature")
         self.tnk_cond.setValue(float(cfg.get("tnk_cond") or 0))
         _set_unit_text(self.T_tnk_unit, cfg.get("T_tnk_unit") or "K")
@@ -700,7 +728,7 @@ class MainWindow(QMainWindow):
         self.dt.setValue(float(cfg.get("dt") or 0.001))
         self.reg_model.setCurrentText(cfg.get("reg_model") or "Constant OF")
         self.dry_OD.set_display(from_si(cfg.get("export_OD") or to_si(cfg.get("grn_OD", 0) * 1.1, cfg.get("grn_OD_unit", "in"), "length"), "in", "length"), "in")
-        self.dry_L.set_display(from_si(cfg.get("export_L") or 1.0, "in", "length"), "in")
+        self.dry_L.set_display(from_si(cfg.get("export_L") or lay.overall_L, "in", "length"), "in")
         adv = cfg.get("advanced") or {}
         self.adv_on.setChecked(bool(adv.get("enabled")))
         if adv.get("ox_fluid"):
@@ -719,6 +747,7 @@ class MainWindow(QMainWindow):
             self.tnk_cond, self.fill, self.tnk_V.spin, self.tnk_D.spin, self.tnk_L.spin,
             self.grn_ID.spin, self.grn_OD.spin, self.grn_L.spin, self.rho.spin, self.const_OF,
             self.noz_thrt.spin, self.noz_ex, self.vnt_D.spin, self.vnt_Cd, self.P_cmbr.spin,
+            self.tnk_start.spin, self.tnk_m.spin, self.cmbr_start.spin, self.cmbr_L.spin, self.cmbr_m.spin,
         ):
             w.valueChanged.connect(self._update_derived_labels)
         self.rho.unit.currentTextChanged.connect(self._update_derived_labels)
@@ -730,6 +759,11 @@ class MainWindow(QMainWindow):
         self.tnk_V.unit.currentTextChanged.connect(self._update_derived_labels)
         self.tnk_D.unit.currentTextChanged.connect(self._update_derived_labels)
         self.tnk_L.unit.currentTextChanged.connect(self._update_derived_labels)
+        self.tnk_start.unit.currentTextChanged.connect(self._update_derived_labels)
+        self.cmbr_start.unit.currentTextChanged.connect(self._update_derived_labels)
+        self.cmbr_L.unit.currentTextChanged.connect(self._update_derived_labels)
+        self.tnk_m.unit.currentTextChanged.connect(self._update_derived_labels)
+        self.cmbr_m.unit.currentTextChanged.connect(self._update_derived_labels)
         self.inj_D.unit.currentTextChanged.connect(self._update_derived_labels)
         self.grn_ID.unit.currentTextChanged.connect(self._update_derived_labels)
         self.grn_OD.unit.currentTextChanged.connect(self._update_derived_labels)
@@ -790,6 +824,19 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             self.sat_info.setText("Saturation: (out of N2O fit range)")
+        try:
+            lay = self._form_layout()
+            empty_m, empty_cg = self._empty_mass_si(lay)
+            unit = self.tnk_start.unit.currentText()
+            self.mass_info.setText(
+                f"Empty mass {empty_m:.3f} kg at CG {from_si(empty_cg, unit, 'length'):.2f} {unit}. "
+                f"Overall length {from_si(lay.overall_L, unit, 'length'):.2f} {unit} "
+                f"(tank L {from_si(lay.tnk_L, unit, 'length'):.2f} {unit})."
+            )
+            if not self.dry_L.spin.hasFocus():
+                self.dry_L.set_display(from_si(lay.overall_L, self.dry_L.unit.currentText(), "length"))
+        except Exception:
+            self.mass_info.setText("Empty mass / CG: —")
         self._refresh_viz()
 
     def _len_si(self, row: UnitRow) -> float:
@@ -808,6 +855,34 @@ class MainWindow(QMainWindow):
             if L <= 1e-9 and d > 0 and V > 0:
                 L = V / (0.25 * math.pi * d ** 2)
         return max(L, 1e-4), max(d, 1e-4), max(V, 0.0)
+
+    def _form_layout(self):
+        tnk_L, _tnk_D, tnk_V = self._tank_geometry()
+        if tnk_L <= 1e-9:
+            tnk_L = tnk_V / (0.25 * math.pi * max(_tnk_D, 1e-9) ** 2)
+        th = self._len_si(self.noz_thrt)
+        exit_d, _er = self._nozzle_exit()
+        return motor_layout(
+            tnk_start=self._len_si(self.tnk_start),
+            tnk_L=tnk_L,
+            tnk_m=to_si(self.tnk_m.spin.value(), self.tnk_m.unit.currentText(), "mass"),
+            cmbr_start=self._len_si(self.cmbr_start),
+            cmbr_L=self._len_si(self.cmbr_L),
+            cmbr_m=to_si(self.cmbr_m.spin.value(), self.cmbr_m.unit.currentText(), "mass"),
+            grn_L=self._len_si(self.grn_L),
+            grn_OD=self._len_si(self.grn_OD),
+            noz_thrt=th,
+            noz_exit=exit_d,
+        )
+
+    def _empty_mass_si(self, lay=None) -> tuple[float, float]:
+        lay = lay or self._form_layout()
+        if lay.dry_mass > 0.0:
+            return lay.dry_mass, lay.dry_cg
+        return (
+            to_si(self._legacy_mtr_m, self._legacy_mtr_m_unit, "mass"),
+            to_si(self._legacy_mtr_cg, self._legacy_mtr_cg_unit, "length"),
+        )
 
     def _nozzle_exit(self) -> tuple[float, float]:
         th = self._len_si(self.noz_thrt)
@@ -933,6 +1008,7 @@ class MainWindow(QMainWindow):
             f"thrust = {thrust:.1f} N",
         )
 
+        lay = self._form_layout()
         return MotorView(
             tnk_L=tnk_L,
             tnk_D=tnk_D,
@@ -947,6 +1023,11 @@ class MainWindow(QMainWindow):
             noz_exit=exit_d,
             fill_frac=fill,
             name=self.name.text().strip() or "motor",
+            tnk_start=lay.tnk0,
+            cmbr_start=lay.cmbr0,
+            cmbr_L=lay.cmbr_L,
+            tnk_dry_kg=lay.tnk_m,
+            cmbr_dry_kg=lay.cmbr_m,
             tank_lines=tank_lines,
             inj_lines=inj_lines,
             grain_lines=grain_lines,

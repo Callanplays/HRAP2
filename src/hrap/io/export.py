@@ -106,7 +106,7 @@ def export_rse(
         F = F * (Itot / np.trapezoid(F, t))
 
     OD = (s.grn_OD * 1.1) if OD is None else OD
-    L = (s.tnk_X + s.grn_L) if L is None else L
+    L = max(s.tnk_X, s.cmbr_X) if L is None else L
     D_exit = math.sqrt(s.noz_ER) * s.noz_thrt
     code = get_impulse_letter(Itot)
 
@@ -157,11 +157,13 @@ def export_eng(
     if t.size > 1 and np.trapezoid(F, t) != 0:
         F = F * (Itot / np.trapezoid(F, t))
     OD = s.grn_OD if OD is None else OD
-    L = s.grn_L if L is None else L
+    L = max(s.tnk_X, s.cmbr_X) if L is None else L
     code = get_impulse_letter(Itot)
     F_avg = int(round(Itot / T_burn)) if T_burn else 0
+    cg0 = float(o.cg[i0]) if o.cg is not None and o.cg.size else float(s.mtr_cg)
     lines = [
-        f"{mfg} {1000.0 * OD} {1000.0 * L} P {m[0] - m[-1] if m.size else 0.0} {m[0] if m.size else 0.0} {code}{F_avg}"
+        f"; HRAP-HCAT-Fork cg0={cg0:.6f} m dry={s.mtr_m:.6f} kg (time-varying CG in .rse)",
+        f"{mfg} {1000.0 * OD} {1000.0 * L} P {m[0] - m[-1] if m.size else 0.0} {m[0] if m.size else 0.0} {code}{F_avg}",
     ]
     for i in range(min(32, t.size)):
         lines.append(f" {t[i]} {F[i]} ")

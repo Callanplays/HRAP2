@@ -13,13 +13,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-INCH = 0.0254
-PLATE_L = 1.0 * INCH
-INJECTOR_L = 1.5 * INCH
-CONV_HALF_DEG = 60.0
-DIV_HALF_DEG = 15.0
+from hrap.layout import INCH, INJECTOR_L, PLATE_L, motor_layout
+
 SPEC_GAP = 6.0
 SPEC_MIN_W = 56.0
+SPAN_H = 28.0
+RULER_H = 22.0
 
 DARK_VIZ = {
     "bg": "#1a1d23",
@@ -35,6 +34,8 @@ DARK_VIZ = {
     "muted": "#9aa3b0",
     "card": "#252a33",
     "overlay": "#f4f6fa",
+    "span": "#7aa4f0",
+    "ruler": "#c5c9d1",
 }
 LIGHT_VIZ = {
     "bg": "#f4f5f7",
@@ -50,6 +51,8 @@ LIGHT_VIZ = {
     "muted": "#5c6370",
     "card": "#ffffff",
     "overlay": "#1b1d21",
+    "span": "#2f5fbf",
+    "ruler": "#5c6370",
 }
 
 
@@ -76,6 +79,11 @@ class MotorView:
     overlay_tank: tuple[str, ...] = ()
     overlay_grain: tuple[str, ...] = ()
     time_s: float | None = None
+    tnk_start: float = 0.0
+    cmbr_start: float | None = None
+    cmbr_L: float = 0.0
+    tnk_dry_kg: float = 0.0
+    cmbr_dry_kg: float = 0.0
 
 
 @dataclass
@@ -96,6 +104,8 @@ class _Geom:
     L_div: float
     x_tnk0: float = 0.0
     x_tnk1: float = 0.0
+    x_cmbr0: float = 0.0
+    x_cmbr1: float = 0.0
     x_plate0: float = 0.0
     x_plate1: float = 0.0
     x_inj0: float = 0.0
@@ -104,6 +114,8 @@ class _Geom:
     x_grn1: float = 0.0
     x_th: float = 0.0
     x_end: float = 0.0
+    x_min: float = 0.0
+    x_span: float = 1.0
     y_max: float = 0.0
 
 
@@ -116,10 +128,18 @@ def _geom(m: MotorView) -> _Geom:
     r_th = max(float(m.noz_thrt) * 0.5, 1e-6)
     r_ex = max(float(m.noz_exit) * 0.5, r_th)
     r_in = max(grn_R, r_th)
-    tan_c = math.tan(math.radians(CONV_HALF_DEG))
-    tan_d = math.tan(math.radians(DIV_HALF_DEG))
-    L_conv = max(0.0, (r_in - r_th) / tan_c) if tan_c > 0 else 0.0
-    L_div = max(0.0, (r_ex - r_th) / tan_d) if tan_d > 0 else 0.0
+    lay = motor_layout(
+        tnk_start=float(m.tnk_start),
+        tnk_L=tnk_L,
+        tnk_m=float(m.tnk_dry_kg),
+        cmbr_start=m.cmbr_start,
+        cmbr_L=float(m.cmbr_L),
+        cmbr_m=float(m.cmbr_dry_kg),
+        grn_L=grn_L,
+        grn_OD=float(m.grn_OD),
+        noz_thrt=float(m.noz_thrt),
+        noz_exit=float(m.noz_exit),
+    )
     g = _Geom(
         tnk_L=tnk_L,
         tnk_R=tnk_R,
@@ -133,23 +153,37 @@ def _geom(m: MotorView) -> _Geom:
         r_th=r_th,
         r_ex=r_ex,
         r_in=r_in,
-        L_conv=L_conv,
-        L_div=L_div,
+        L_conv=lay.L_conv,
+        L_div=lay.L_div,
+        x_tnk0=lay.tnk0,
+        x_tnk1=lay.tnk1,
+        x_cmbr0=lay.cmbr0,
+        x_cmbr1=lay.cmbr1,
+        x_plate0=lay.plate0,
+        x_plate1=lay.plate1,
+        x_inj0=lay.inj0,
+        x_inj1=lay.inj1,
+        x_grn0=lay.grn0,
+        x_grn1=lay.grn1,
+        x_th=lay.x_th,
+        x_end=lay.x_max,
+        x_min=lay.x_min,
+        x_span=max(lay.overall_L, 1e-6),
     )
-    g.x_tnk0 = 0.0
-    g.x_tnk1 = tnk_L
-    g.x_plate0 = g.x_tnk1
-    g.x_plate1 = g.x_tnk1 + PLATE_L
-    # 1" plate; 1.5" orifices start at the tank face and stick 0.5" out to the right.
-    g.x_inj0 = g.x_plate0
-    g.x_inj1 = g.x_plate0 + INJECTOR_L
-    g.x_grn0 = g.x_plate1
-    g.x_grn1 = g.x_grn0 + grn_L
-    g.x_th = g.x_grn1 + L_conv
-    g.x_end = max(g.x_th + L_div, g.x_inj1)
     vent_h = 0.32 * 2.0 * tnk_R if g.vnt_on else 0.0
     g.y_max = max(tnk_R, grn_R, r_ex, r_in) + vent_h
     return g
+
+
+def _ruler_step(span_in: float) -> float:
+    if span_in <= 0:
+        return 1.0
+    raw = span_in / 8.0
+    mag = 10 ** math.floor(math.log10(raw)) if raw > 0 else 1.0
+    for mult in (1.0, 2.0, 5.0, 10.0):
+        if raw <= mult * mag:
+            return mult * mag
+    return 10.0 * mag
 
 
 def liquid_rect(tank: QRectF, fill: float) -> QRectF:
@@ -235,8 +269,8 @@ class MotorVizWidget(QWidget):
             noz_exit=0.04,
             fill_frac=0.95,
         )
-        self.setMinimumHeight(292)
-        self.setMaximumHeight(380)
+        self.setMinimumHeight(340)
+        self.setMaximumHeight(460)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def set_framed(self, framed: bool) -> None:
@@ -265,7 +299,6 @@ class MotorVizWidget(QWidget):
         m = self._model
         g = _geom(m)
         pad = 10.0
-        name_h = 22.0
         title_font = QFont("Segoe UI", 8, QFont.Weight.DemiBold)
         body_font = QFont("Segoe UI", 8)
         title_fm = QFontMetrics(title_font)
@@ -274,18 +307,18 @@ class MotorVizWidget(QWidget):
         max_lines = max((len(ln) for ln in spec_items), default=2)
         label_h = title_fm.height() + max(0, max_lines - 1) * body_fm.height() + 14.0
         inner = rect.adjusted(pad, pad, -pad, -pad)
-        motor_h = inner.height() - label_h - name_h
-        if motor_h < 36 or inner.width() < 40 or g.x_end <= 0:
+        motor_h = inner.height() - label_h - SPAN_H - RULER_H
+        if motor_h < 36 or inner.width() < 40 or g.x_span <= 0:
             return
-        sx = inner.width() / g.x_end
+        sx = inner.width() / g.x_span
         sy = motor_h / max(2.0 * g.y_max, 1e-6)
         scale = min(sx, sy)
-        used_w = g.x_end * scale
+        used_w = g.x_span * scale
         ox = inner.left() + 0.5 * (inner.width() - used_w)
         cy = inner.top() + label_h + 0.5 * motor_h
 
         def X(x: float) -> float:
-            return ox + x * scale
+            return ox + (x - g.x_min) * scale
 
         def Y(y: float) -> float:
             return cy - y * scale
@@ -317,6 +350,13 @@ class MotorVizWidget(QWidget):
             p.setBrush(_c(colors, "plate"))
             p.setPen(outline)
             p.drawRect(vent)
+
+        if g.x_cmbr0 - g.x_tnk1 > 1e-6:
+            feed_r = min(g.tnk_R, g.grn_R) * 0.18
+            feed = box(g.x_tnk1, g.x_cmbr0, max(feed_r, 2.0 / scale / 2.0))
+            p.setBrush(_c(colors, "plate"))
+            p.setPen(outline)
+            p.drawRect(feed)
 
         grain = box(g.x_grn0, g.x_grn1, g.grn_R)
         p.setBrush(_c(colors, "grain"))
@@ -368,13 +408,56 @@ class MotorVizWidget(QWidget):
         band = QRectF(inner.left(), inner.top(), inner.width(), label_h - 4)
         self._draw_specs(p, colors, band, g, X, m, title_font, body_font, title_fm, body_fm)
 
-        p.setPen(_c(colors, "text"))
-        p.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))
-        p.drawText(
-            QRectF(inner.left(), inner.top() + label_h + motor_h, inner.width(), name_h),
-            int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
+        span_top = inner.top() + label_h + motor_h
+        self._draw_span_labels(p, colors, g, X, m, QRectF(inner.left(), span_top, inner.width(), SPAN_H))
+        self._draw_ruler(
+            p,
+            colors,
+            g,
+            X,
+            QRectF(inner.left(), span_top + SPAN_H, inner.width(), RULER_H),
             m.name or "motor",
         )
+
+    def _draw_span_labels(self, p: QPainter, colors: dict, g: _Geom, X, m: MotorView, band: QRectF) -> None:
+        spans = (
+            (g.x_tnk0, g.x_tnk1, "Oxidizer Tank", m.tnk_dry_kg),
+            (g.x_cmbr0, g.x_cmbr1, "Thrust Chamber Assembly", m.cmbr_dry_kg),
+        )
+        font = QFont("Segoe UI", 8, QFont.Weight.DemiBold)
+        p.setFont(font)
+        fm = QFontMetrics(font)
+        for x0, x1, title, mass_kg in spans:
+            left, right = X(x0), X(x1)
+            if right - left < 12:
+                continue
+            y = band.top() + 2.0
+            p.setPen(QPen(_c(colors, "span"), 2.0))
+            p.drawLine(QPointF(left, y + fm.height() + 3.0), QPointF(right, y + fm.height() + 3.0))
+            p.setPen(_c(colors, "span"))
+            text = f"{title}  {mass_kg:.1f}kg"
+            p.drawText(
+                QRectF(left, y, max(right - left, 8.0), fm.height() + 2.0),
+                int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
+                fm.elidedText(text, Qt.TextElideMode.ElideRight, max(int(right - left), 1)),
+            )
+
+    def _draw_ruler(self, p: QPainter, colors: dict, g: _Geom, X, band: QRectF, name: str) -> None:
+        y = band.center().y()
+        x0, x1 = X(g.x_min), X(g.x_min + g.x_span)
+        p.setPen(QPen(_c(colors, "ruler"), 1.0))
+        p.drawLine(QPointF(x0, y), QPointF(x1, y))
+        span_in = g.x_span / INCH
+        step_in = _ruler_step(span_in)
+        tick = 0.0
+        while tick <= span_in + 1e-9:
+            xt = X(g.x_min + tick * INCH)
+            h = 6.0 if abs(tick / step_in - round(tick / step_in)) < 1e-6 else 3.0
+            p.drawLine(QPointF(xt, y - h), QPointF(xt, y + h))
+            tick += step_in / 2.0
+        p.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
+        p.setPen(_c(colors, "text"))
+        p.drawText(band, int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter), name)
 
     def _draw_specs(
         self,
