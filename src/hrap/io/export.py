@@ -57,16 +57,35 @@ def get_impulse_letter(Itot: float) -> str:
     return letter if isinstance(letter, str) else "U"
 
 
-def _mass_cg_series(o: Output, s: Settings) -> tuple[np.ndarray, np.ndarray]:
-    """Wet mass and time-varying CG (meters) for RSE / ENG."""
-    m = o.m_t if o.m_t is not None else (s.mtr_m + o.m_o + o.m_f)
-    if o.cg is not None and o.cg.size == m.size and np.any(np.abs(o.cg) > 0.0):
-        return m, o.cg
+def _mass_cg_series(
+    o: Output,
+    s: Settings,
+    *,
+    dry_mass: float | None = None,
+    dry_cg: float | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Wet mass and time-varying CG (meters) for RSE / ENG.
+
+    Always ``dry + remaining oxidizer + remaining fuel`` so tank/chamber dry
+    mass from the form is present even if the last run stored propellant-only ``m_t``.
+    """
+    dry = float(s.mtr_m if dry_mass is None else dry_mass)
+    dry_x = float(s.mtr_cg if dry_cg is None else dry_cg)
+    m = dry + o.m_o + o.m_f
     grain_cg = s.cmbr_X - 0.5 * s.grn_L
-    tank_cg = s.tnk_X - 0.5 * (s.tnk_V / (0.25 * math.pi * s.tnk_D ** 2) if s.tnk_D else 0.0)
+    tank_len = s.tnk_V / (0.25 * math.pi * s.tnk_D ** 2) if s.tnk_D else 0.0
+    tank_cg = s.tnk_X - 0.5 * tank_len
     tot = np.maximum(m, 1e-12)
-    cg = (o.m_o * tank_cg + o.m_f * grain_cg + s.mtr_m * s.mtr_cg) / tot
-    return m, cg
+    rebuilt = (o.m_o * tank_cg + o.m_f * grain_cg + dry * dry_x) / tot
+    if (
+        o.cg is not None
+        and o.m_t is not None
+        and o.cg.size == m.size
+        and np.any(np.abs(o.cg) > 0.0)
+        and abs(float(o.m_t[0]) - float(m[0])) < 1e-6
+    ):
+        return m, o.cg
+    return m, rebuilt
 
 
 def export_rse(
@@ -78,10 +97,12 @@ def export_rse(
     L: float | None = None,
     mfg: str = "HRAP",
     Nt_max: int = 200,
+    dry_mass: float | None = None,
+    dry_cg: float | None = None,
 ) -> None:
     t, F = o.t, o.F_thr
     mdot = o.mdot_o + o.mdot_f
-    m, Cg = _mass_cg_series(o, s)
+    m, Cg = _mass_cg_series(o, s, dry_mass=dry_mass, dry_cg=dry_cg)
 
     i0, i1 = _nonzero_window(F)
     t, F, mdot, m, Cg = t[i0 : i1 + 1], F[i0 : i1 + 1], mdot[i0 : i1 + 1], m[i0 : i1 + 1], Cg[i0 : i1 + 1]
@@ -149,9 +170,11 @@ def export_eng(
     OD: float | None = None,
     L: float | None = None,
     mfg: str = "HRAP",
+    dry_mass: float | None = None,
+    dry_cg: float | None = None,
 ) -> None:
     t, F = o.t, o.F_thr
-    m = o.m_t if o.m_t is not None else (s.mtr_m + o.m_o + o.m_f)
+    m, _cg = _mass_cg_series(o, s, dry_mass=dry_mass, dry_cg=dry_cg)
     i0, i1 = _nonzero_window(F)
     t, F, m = t[i0 : i1 + 1], F[i0 : i1 + 1], m[i0 : i1 + 1]
     T_burn = float(t[-1] - t[0]) if t.size > 1 else 0.0
@@ -167,9 +190,10 @@ def export_eng(
     L = max(s.tnk_X, s.cmbr_X) if L is None else L
     code = get_impulse_letter(Itot)
     F_avg = int(round(Itot / T_burn)) if T_burn else 0
-    cg0 = float(o.cg[i0]) if o.cg is not None and o.cg.size else float(s.mtr_cg)
+    dry = float(s.mtr_m if dry_mass is None else dry_mass)
+    cg0 = float(o.cg[i0]) if o.cg is not None and o.cg.size else float(s.mtr_cg if dry_cg is None else dry_cg)
     lines = [
-        f"; HRAP-HCAT-Fork cg0={cg0:.6f} m dry={s.mtr_m:.6f} kg (time-varying CG in .rse)",
+        f"; HRAP-HCAT-Fork cg0={cg0:.6f} m dry={dry:.6f} kg (time-varying CG in .rse)",
         f"{mfg} {1000.0 * OD} {1000.0 * L} P {m[0] - m[-1] if m.size else 0.0} {m[0] if m.size else 0.0} {code}{F_avg}",
     ]
     for i in range(min(32, t.size)):

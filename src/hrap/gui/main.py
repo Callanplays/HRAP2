@@ -1264,6 +1264,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Export", "Run a simulation first.")
             return
         cfg = self._form_to_cfg()
+        dry_m, dry_cg = self._empty_mass_si()
         if kind == "csv":
             path, _ = QFileDialog.getSaveFileName(self, "Export CSV", "HRAP_output.csv", "CSV (*.csv)")
             if path:
@@ -1272,11 +1273,29 @@ class MainWindow(QMainWindow):
             stem = (self.name.text() or "motor").strip() or "motor"
             path, _ = QFileDialog.getSaveFileName(self, "Export RSE", f"{stem}.rse", "RSE (*.rse)")
             if path:
-                export_rse(path, self._output, self._settings, OD=cfg["export_OD"], L=cfg["export_L"], mfg=cfg["mfg"])
+                export_rse(
+                    path,
+                    self._output,
+                    self._settings,
+                    OD=cfg["export_OD"],
+                    L=cfg["export_L"],
+                    mfg=cfg["mfg"],
+                    dry_mass=dry_m,
+                    dry_cg=dry_cg,
+                )
         else:
             path, _ = QFileDialog.getSaveFileName(self, "Export ENG", "motor.eng", "ENG (*.eng)")
             if path:
-                export_eng(path, self._output, self._settings, OD=cfg["export_OD"], L=cfg["export_L"], mfg=cfg["mfg"])
+                export_eng(
+                    path,
+                    self._output,
+                    self._settings,
+                    OD=cfg["export_OD"],
+                    L=cfg["export_L"],
+                    mfg=cfg["mfg"],
+                    dry_mass=dry_m,
+                    dry_cg=dry_cg,
+                )
 
     def _set_theme(self, name: str):
         self._theme = name

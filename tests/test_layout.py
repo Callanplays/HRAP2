@@ -9,7 +9,7 @@ from hrap.io.export import export_eng, export_rse
 from hrap.layout import FEED_GAP, INCH, PLATE_L, infer_component_stations, motor_layout, nozzle_cone_lengths, nozzle_exit_diameter
 from hrap.units import to_si
 
-HPS01_MASSED = Path(__file__).resolve().parents[1] / "HCAT motor files" / "HPS01-01_Massed.json"
+HPS01_MASSED = Path(__file__).resolve().parent / "fixtures" / "HPS01-01_Massed.json"
 
 
 def test_packed_layout_matches_legacy_plate_stack():
@@ -163,6 +163,47 @@ def test_hps01_massed_layout():
     assert x.m_o > 0.0
 
 
+def _rse_init_wt_g(text: str) -> float:
+    return float(text.split('initWt="')[1].split('"')[0])
+
+
+def test_rse_initwt_includes_user_dry_mass_even_if_run_omitted_it(tmp_path):
+    cfg = default_cfg()
+    cfg["tnk_V_state"] = 1
+    cfg["tnk_L"] = 15.0
+    cfg["tnk_L_unit"] = "in"
+    cfg["tnk_m"] = 4.0
+    cfg["cmbr_start"] = 20.0
+    cfg["cmbr_start_unit"] = "in"
+    cfg["cmbr_L"] = 22.0
+    cfg["cmbr_L_unit"] = "in"
+    cfg["cmbr_m"] = 6.0
+    s, _x = resolve(cfg)
+    assert abs(s.mtr_m - 10.0) < 1e-9
+    n = 25
+    o = Output(
+        t=np.linspace(0.0, 1.5, n),
+        m_o=np.linspace(2.0, 0.2, n),
+        P_tnk=np.ones(n),
+        P_cmbr=np.ones(n),
+        mdot_o=np.ones(n) * 0.1,
+        mdot_f=np.ones(n) * 0.02,
+        OF=np.ones(n) * 5.0,
+        grn_ID=np.ones(n) * s.grn_ID0,
+        mdot_n=np.ones(n) * 0.12,
+        rdot=np.zeros(n),
+        m_f=np.linspace(1.0, 0.4, n),
+        F_thr=np.ones(n) * 150.0,
+        dP=np.zeros(n),
+        m_t=np.linspace(3.0, 0.6, n),
+        cg=np.zeros(n),
+    )
+    path = tmp_path / "dry.rse"
+    export_rse(path, o, s, mfg="HCAT")
+    init_kg = _rse_init_wt_g(path.read_text(encoding="utf-8")) / 1000.0
+    assert abs(init_kg - (10.0 + 2.0 + 1.0)) < 1e-6
+
+
 def test_hps01_rse_has_shifting_cg(tmp_path):
     cfg = load_json(HPS01_MASSED)
     s, x = resolve(cfg)
@@ -173,6 +214,10 @@ def test_hps01_rse_has_shifting_cg(tmp_path):
     path = tmp_path / "hps01.rse"
     export_rse(path, o, s, L=cfg.get("export_L"), mfg="HCAT")
     text = path.read_text(encoding="utf-8")
+    init_kg = _rse_init_wt_g(text) / 1000.0
+    wet0 = s.mtr_m + float(o.m_o[0]) + float(o.m_f[0])
+    assert init_kg > s.mtr_m + 0.5
+    assert abs(init_kg - wet0) < 0.02
     cgs = [float(part.split('cg="')[1].split('"')[0]) for part in text.split() if 'cg="' in part]
     assert o.cg is not None and o.cg.size == o.t.size
     assert len(cgs) > 5
