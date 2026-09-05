@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hrap"
-version = "1.0.0"
-description = "HRAP (HCAT Fork) 1.0.0 — Hybrid Rocket Analysis Program with a MATLAB-parity engine and dark-mode desktop UI."
+dynamic = ["version"]
+description = "HRAP (HCAT Fork) — Hybrid Rocket Analysis Program with a MATLAB-parity engine and dark-mode desktop UI."
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.10"
@@ -30,6 +30,12 @@ advanced = [
 dev = [
     "pytest",
 ]
+build = [
+    "pyinstaller>=6.0",
+]
+
+[tool.hatch.version]
+path = "src/hrap/__init__.py"
 
 [project.scripts]
 hrap = "hrap.gui.main:main"

@@ -4,7 +4,15 @@
 
 Version **1.0.0** ships a Python app whose default engine is a line-for-line port of the MATLAB sequential Euler loop (self-pressurizing N2O tank, tabulated combustion chemistry, isentropic nozzle). Optional CoolProp / non-cylindrical grain features are labeled as **not** MATLAB-identical.
 
-## Run
+## Windows executable
+
+Download the versioned zip from [Releases](https://github.com/sidbanch/HRAP2/releases) (`HRAP-HCAT-Fork-1.0.0-windows.zip` for this release). Unzip and run `HRAP.exe`. No Python install is required.
+
+Later versions use the same naming: `HRAP-HCAT-Fork-<version>-windows.zip` on the matching GitHub Release.
+
+To cut a new release: bump `__version__` in `src/hrap/__init__.py`, commit, tag `vX.Y.Z`, and push the tag. GitHub Actions builds the Windows zip and attaches it to the release. Local rebuild: `build_exe.bat`.
+
+## Run from source
 
 Requires **Python 3.10+**.
 

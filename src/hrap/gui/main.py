@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import math
+import os
 import sys
 import traceback
+from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
@@ -1220,15 +1222,40 @@ def _has_bundled(name: str) -> bool:
         return False
 
 
+def _prepare_qt_environment() -> None:
+    """Make sure a desktop Qt plugin is used and Windows can find fonts."""
+    if sys.platform != "win32":
+        return
+    plat = str(os.environ.get("QT_QPA_PLATFORM", "")).lower()
+    if plat in {"offscreen", "minimal", "null"} and not os.environ.get("HRAP_OFFSCREEN"):
+        os.environ.pop("QT_QPA_PLATFORM", None)
+    windir = os.environ.get("WINDIR", r"C:\Windows")
+    os.environ.setdefault("QT_QPA_FONTDIR", str(Path(windir) / "Fonts"))
+
+
 def main():
-    app = QApplication(sys.argv)
-    app.setApplicationName(APP_NAME)
-    app.setApplicationVersion(__version__)
-    apply_theme(app, "dark")
-    pg.setConfigOptions(antialias=True, background="#1a1d23", foreground="#e6e8ee")
-    win = MainWindow()
-    win.show()
-    sys.exit(app.exec())
+    _prepare_qt_environment()
+    try:
+        app = QApplication(sys.argv)
+        app.setApplicationName(APP_NAME)
+        app.setApplicationVersion(__version__)
+        apply_theme(app, "dark")
+        pg.setConfigOptions(antialias=True, background="#1a1d23", foreground="#e6e8ee")
+        win = MainWindow()
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        sys.exit(app.exec())
+    except SystemExit:
+        raise
+    except Exception:
+        log = Path.cwd() / "hrap_launch.log"
+        log.write_text(traceback.format_exc(), encoding="utf-8")
+        try:
+            QMessageBox.critical(None, APP_NAME, f"Failed to start.\n\nDetails written to:\n{log}")
+        except Exception:
+            print(f"Failed to start. Details: {log}", file=sys.stderr)
+        raise
 
 
 if __name__ == "__main__":
