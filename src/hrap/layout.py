@@ -63,6 +63,7 @@ class MotorLayout:
     grn1: float
     x_th: float
     x_noz: float
+    x_case: float
     L_conv: float
     L_div: float
     tnk_L: float
@@ -76,7 +77,7 @@ class MotorLayout:
 
     @property
     def x_max(self) -> float:
-        return max(self.tnk1, self.cmbr1, self.x_noz, self.inj1)
+        return max(self.tnk1, self.x_noz, self.inj1)
 
     @property
     def overall_L(self) -> float:
@@ -133,17 +134,22 @@ def motor_layout(
     else:
         cmbr0 = float(cmbr_start)
     L_conv, L_div = nozzle_cone_lengths(grn_OD, noz_thrt, noz_exit)
-    auto_cmbr = PLATE_L + max(float(grn_L), 1e-4) + L_conv + L_div
-    cmbr_L = float(cmbr_L) if cmbr_L > 1e-9 else auto_cmbr
-    cmbr_L = max(cmbr_L, 1e-4)
-    cmbr1 = cmbr0 + cmbr_L
+    grn_L = max(float(grn_L), 1e-4)
+    auto_cmbr = PLATE_L + grn_L + L_conv + L_div
+    mass_cmbr_L = float(cmbr_L) if cmbr_L > 1e-9 else auto_cmbr
+    mass_cmbr_L = max(mass_cmbr_L, 1e-4)
+    extra = max(0.0, mass_cmbr_L - auto_cmbr)
+    cmbr1 = cmbr0 + mass_cmbr_L
     plate0 = cmbr0
     plate1 = cmbr0 + PLATE_L
     inj0 = plate0
     inj1 = plate0 + INJECTOR_L
     grn0 = plate1
-    grn1 = grn0 + max(float(grn_L), 1e-4)
-    x_th = grn1 + L_conv
+    grn1 = grn0 + grn_L
+    # Leftover chamber length is a cylindrical case before the nozzle.
+    # The cone itself stays at the throat / exit geometry — never stretched.
+    x_case = grn1 + extra
+    x_th = x_case + L_conv
     x_noz = x_th + L_div
     return MotorLayout(
         tnk0=tnk0,
@@ -158,10 +164,11 @@ def motor_layout(
         grn1=grn1,
         x_th=x_th,
         x_noz=x_noz,
+        x_case=x_case,
         L_conv=L_conv,
         L_div=L_div,
         tnk_L=tnk_L,
-        cmbr_L=cmbr_L,
+        cmbr_L=mass_cmbr_L,
         tnk_m=max(float(tnk_m), 0.0),
         cmbr_m=max(float(cmbr_m), 0.0),
     )

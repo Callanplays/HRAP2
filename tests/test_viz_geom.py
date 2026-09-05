@@ -55,6 +55,32 @@ def test_explicit_starts_open_a_feed_gap():
     assert abs(g.x_cmbr0 - 0.40) < 1e-12
     assert g.x_cmbr0 > g.x_tnk1
     assert g.x_min == g.x_tnk0
+    assert abs(g.x_end - g.x_noz) < 1e-12
+    assert abs((g.x_noz - g.x_th) - g.L_div) < 1e-12
+
+
+def test_chamber_leftover_is_case_not_nozzle():
+    m = MotorView(
+        tnk_L=0.20,
+        tnk_D=0.10,
+        grn_L=0.20,
+        grn_OD=0.08,
+        grn_ID=0.04,
+        inj_D=0.006,
+        inj_N=3,
+        vnt_state="None",
+        vnt_D=0.0,
+        noz_thrt=0.025,
+        noz_exit=0.05,
+        fill_frac=0.5,
+        tnk_start=0.0,
+        cmbr_start=0.25,
+        cmbr_L=0.80,
+    )
+    g = _geom(m)
+    assert g.x_case - g.x_grn1 > 0.2
+    assert abs((g.x_noz - g.x_th) - g.L_div) < 1e-12
+    assert abs(g.x_cmbr1 - g.x_noz) < 1e-12
 
 
 def test_liquid_sits_on_the_right():

@@ -1,8 +1,12 @@
+from pathlib import Path
+
 from hrap.engine.mass import mass_properties
-from hrap.io.config import apply_layout_mass, bundled_motor, default_cfg, resolve, resolve_layout
+from hrap.io.config import apply_layout_mass, bundled_motor, default_cfg, load_json, resolve, resolve_layout
 from hrap.io.export import export_eng
-from hrap.layout import FEED_GAP, PLATE_L, infer_component_stations, motor_layout
+from hrap.layout import FEED_GAP, INCH, PLATE_L, infer_component_stations, motor_layout, nozzle_cone_lengths, nozzle_exit_diameter
 from hrap.units import to_si
+
+HPS01_MASSED = Path(__file__).resolve().parents[1] / "HCAT motor files" / "HPS01-01_Massed.json"
 
 
 def test_packed_layout_matches_legacy_plate_stack():
@@ -114,6 +118,44 @@ def test_component_dry_mass_replaces_legacy_empty():
     m_t, cg = mass_properties(s, x)
     assert abs(m_t - (10.0 + 2.0 + 1.0)) < 1e-9
     assert cg > 0.0
+
+
+def test_long_chamber_does_not_stretch_nozzle():
+    lay = motor_layout(
+        tnk_start=0.0,
+        tnk_L=0.20,
+        cmbr_start=0.25,
+        cmbr_L=0.80,
+        grn_L=0.20,
+        grn_OD=0.08,
+        noz_thrt=0.025,
+        noz_exit=0.05,
+    )
+    L_conv, L_div = nozzle_cone_lengths(0.08, 0.025, 0.05)
+    assert abs((lay.x_th - lay.x_case) - L_conv) < 1e-12
+    assert abs((lay.x_noz - lay.x_th) - L_div) < 1e-12
+    assert lay.x_case - lay.grn1 > 0.2
+    assert abs(lay.x_noz - (lay.cmbr0 + lay.cmbr_L)) < 1e-9
+
+
+def test_hps01_massed_layout():
+    cfg = load_json(HPS01_MASSED)
+    lay = resolve_layout(cfg)
+    th = 1.0 * INCH
+    exit_d = nozzle_exit_diameter(th, 3.2)
+    L_conv, L_div = nozzle_cone_lengths(3.625 * INCH, th, exit_d)
+    assert abs(lay.tnk_L - 45.0 * INCH) < 1e-6
+    assert abs(lay.cmbr0 - 47.0 * INCH) < 1e-6
+    assert abs(lay.cmbr_L - 24.0 * INCH) < 1e-6
+    assert abs(lay.tnk_m - 14.0 * 0.453592) < 1e-6
+    assert abs(lay.cmbr_m - 15.0) < 1e-6
+    assert abs((lay.x_noz - lay.x_th) - L_div) < 1e-9
+    assert abs((lay.x_th - lay.x_case) - L_conv) < 1e-9
+    assert lay.x_case - lay.grn1 > INCH
+    s, x = resolve(cfg)
+    assert s.mtr_nm == "HPS01-01"
+    assert s.mtr_m > 20.0
+    assert x.m_o > 0.0
 
 
 def test_eng_header_uses_layout_length_and_notes_cg(tmp_path):
