@@ -46,6 +46,10 @@ def test_example_98mm_const_of_runs(tmp_path):
     export_rse(tmp_path / "m.rse", o, s)
     text = (tmp_path / "m.rse").read_text(encoding="utf-8")
     assert "cg=" in text
+    assert 'auto-calc-cg="0"' in text
+    cgs = [float(part.split('cg="')[1].split('"')[0]) for part in text.split() if 'cg="' in part]
+    assert len(cgs) > 5
+    assert max(cgs) - min(cgs) > 1.0
     export_eng(tmp_path / "m.eng", o, s)
     eng = (tmp_path / "m.eng").read_text(encoding="utf-8")
     assert "cg0=" in eng

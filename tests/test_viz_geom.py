@@ -1,6 +1,6 @@
 from PySide6.QtCore import QRectF
 
-from hrap.gui.viz import INJECTOR_L, PLATE_L, MotorView, _geom, liquid_rect, pack_hrects
+from hrap.gui.viz import INJECTOR_L, PLATE_L, MotorView, _geom, _vent_visible, liquid_rect, pack_hrects
 
 
 def test_plate_and_injector_lengths():
@@ -78,9 +78,32 @@ def test_chamber_leftover_is_case_not_nozzle():
         cmbr_L=0.80,
     )
     g = _geom(m)
-    assert g.x_case - g.x_grn1 > 0.2
+    assert abs((g.x_grn0 - g.x_plate1) - (g.x_case - g.x_grn1)) < 1e-12
+    assert g.x_grn0 - g.x_plate1 > 0.1
     assert abs((g.x_noz - g.x_th) - g.L_div) < 1e-12
     assert abs(g.x_cmbr1 - g.x_noz) < 1e-12
+
+
+def test_orifice_vent_stays_on_for_internal_and_nonzero_diameter():
+    base = dict(
+        tnk_L=0.20,
+        tnk_D=0.10,
+        grn_L=0.20,
+        grn_OD=0.08,
+        grn_ID=0.04,
+        inj_D=0.006,
+        inj_N=3,
+        noz_thrt=0.025,
+        noz_exit=0.05,
+        fill_frac=0.9,
+    )
+    internal = MotorView(**base, vnt_state="Internal", vnt_D=0.002)
+    assert _geom(internal).vnt_on
+    assert _vent_visible("Internal", 0.0)
+    tiny = MotorView(**base, vnt_state="None", vnt_D=0.0003)
+    assert _geom(tiny).vnt_on
+    hidden = MotorView(**base, vnt_state="None", vnt_D=0.0)
+    assert not _geom(hidden).vnt_on
 
 
 def test_liquid_sits_on_the_right():

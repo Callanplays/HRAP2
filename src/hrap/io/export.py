@@ -57,6 +57,18 @@ def get_impulse_letter(Itot: float) -> str:
     return letter if isinstance(letter, str) else "U"
 
 
+def _mass_cg_series(o: Output, s: Settings) -> tuple[np.ndarray, np.ndarray]:
+    """Wet mass and time-varying CG (meters) for RSE / ENG."""
+    m = o.m_t if o.m_t is not None else (s.mtr_m + o.m_o + o.m_f)
+    if o.cg is not None and o.cg.size == m.size and np.any(np.abs(o.cg) > 0.0):
+        return m, o.cg
+    grain_cg = s.cmbr_X - 0.5 * s.grn_L
+    tank_cg = s.tnk_X - 0.5 * (s.tnk_V / (0.25 * math.pi * s.tnk_D ** 2) if s.tnk_D else 0.0)
+    tot = np.maximum(m, 1e-12)
+    cg = (o.m_o * tank_cg + o.m_f * grain_cg + s.mtr_m * s.mtr_cg) / tot
+    return m, cg
+
+
 def export_rse(
     path: str | Path,
     o: Output,
@@ -69,12 +81,7 @@ def export_rse(
 ) -> None:
     t, F = o.t, o.F_thr
     mdot = o.mdot_o + o.mdot_f
-    if o.m_t is not None:
-        m = o.m_t
-        Cg = o.cg if o.cg is not None else np.zeros_like(m)
-    else:
-        m = s.mtr_m + o.m_o + o.m_f
-        Cg = np.full_like(m, s.mtr_cg)
+    m, Cg = _mass_cg_series(o, s)
 
     i0, i1 = _nonzero_window(F)
     t, F, mdot, m, Cg = t[i0 : i1 + 1], F[i0 : i1 + 1], mdot[i0 : i1 + 1], m[i0 : i1 + 1], Cg[i0 : i1 + 1]

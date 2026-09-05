@@ -37,10 +37,9 @@ def _blank_output(s: Settings) -> Output:
         m_f=z(),
         F_thr=z(),
         dP=z(),
+        m_t=z(),
+        cg=z(),
     )
-    if s.mp_calc == 1:
-        o.m_t = z()
-        o.cg = z()
     return o
 
 
@@ -58,10 +57,9 @@ def record(o: Output, x: State, t: float, i: int, s: Settings) -> None:
     o.m_f[i] = x.m_f
     o.dP[i] = x.dP
     o.F_thr[i] = x.F_thr
-    if s.mp_calc == 1:
-        mp = mass_properties(s, x)
-        o.m_t[i] = mp[0]
-        o.cg[i] = mp[1]
+    mp = mass_properties(s, x)
+    o.m_t[i] = mp[0]
+    o.cg[i] = mp[1]
 
 
 def sim_iteration(s: Settings, x: State, o: Output, t: float, i: int) -> tuple[Settings, State, Output, float]:
@@ -122,12 +120,9 @@ def sim_loop(
     last = min(last, o.t.size)
     for name in (
         "t", "m_o", "P_tnk", "P_cmbr", "mdot_o", "mdot_f", "OF",
-        "grn_ID", "mdot_n", "rdot", "m_f", "F_thr", "dP",
+        "grn_ID", "mdot_n", "rdot", "m_f", "F_thr", "dP", "m_t", "cg",
     ):
         setattr(o, name, getattr(o, name)[:last])
-    if s.mp_calc == 1:
-        o.m_t = o.m_t[:last]
-        o.cg = o.cg[:last]
     return s, x, o, t
 
 
@@ -149,10 +144,9 @@ def run(
     o.mdot_n[0] = x.mdot_n
     o.rdot[0] = x.rdot
     o.m_f[0] = x.m_f
-    if s.mp_calc == 1:
-        mp = mass_properties(s, x)
-        o.m_t[0] = mp[0]
-        o.cg[0] = mp[1]
+    mp = mass_properties(s, x)
+    o.m_t[0] = mp[0]
+    o.cg[0] = mp[1]
     if on_progress is not None:
         on_progress(0, o.t.size)
     s, x, o, _t = sim_loop(s, x, o, 0.0, on_progress=on_progress)

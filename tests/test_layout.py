@@ -1,8 +1,11 @@
 from pathlib import Path
 
+import numpy as np
+
 from hrap.engine.mass import mass_properties
+from hrap.engine.types import Output
 from hrap.io.config import apply_layout_mass, bundled_motor, default_cfg, load_json, resolve, resolve_layout
-from hrap.io.export import export_eng
+from hrap.io.export import export_eng, export_rse
 from hrap.layout import FEED_GAP, INCH, PLATE_L, infer_component_stations, motor_layout, nozzle_cone_lengths, nozzle_exit_diameter
 from hrap.units import to_si
 
@@ -134,7 +137,8 @@ def test_long_chamber_does_not_stretch_nozzle():
     L_conv, L_div = nozzle_cone_lengths(0.08, 0.025, 0.05)
     assert abs((lay.x_th - lay.x_case) - L_conv) < 1e-12
     assert abs((lay.x_noz - lay.x_th) - L_div) < 1e-12
-    assert lay.x_case - lay.grn1 > 0.2
+    assert abs((lay.grn0 - lay.plate1) - (lay.x_case - lay.grn1)) < 1e-12
+    assert lay.grn0 - lay.plate1 > 0.1
     assert abs(lay.x_noz - (lay.cmbr0 + lay.cmbr_L)) < 1e-9
 
 
@@ -148,14 +152,61 @@ def test_hps01_massed_layout():
     assert abs(lay.cmbr0 - 47.0 * INCH) < 1e-6
     assert abs(lay.cmbr_L - 24.0 * INCH) < 1e-6
     assert abs(lay.tnk_m - 14.0 * 0.453592) < 1e-6
-    assert abs(lay.cmbr_m - 15.0) < 1e-6
+    assert abs(lay.cmbr_m - 15.0 * 0.453592) < 1e-6
     assert abs((lay.x_noz - lay.x_th) - L_div) < 1e-9
     assert abs((lay.x_th - lay.x_case) - L_conv) < 1e-9
-    assert lay.x_case - lay.grn1 > INCH
+    assert abs((lay.grn0 - lay.plate1) - (lay.x_case - lay.grn1)) < 1e-9
+    assert lay.grn0 - lay.plate1 > INCH
     s, x = resolve(cfg)
     assert s.mtr_nm == "HPS01-01"
-    assert s.mtr_m > 20.0
+    assert abs(s.mtr_m - 29.0 * 0.453592) < 1e-4
     assert x.m_o > 0.0
+
+
+def test_hps01_rse_has_shifting_cg(tmp_path):
+    cfg = load_json(HPS01_MASSED)
+    s, x = resolve(cfg)
+    assert s.mp_calc == 0
+    from hrap.engine.sim import run
+
+    _x, o = run(s, x)
+    path = tmp_path / "hps01.rse"
+    export_rse(path, o, s, L=cfg.get("export_L"), mfg="HCAT")
+    text = path.read_text(encoding="utf-8")
+    cgs = [float(part.split('cg="')[1].split('"')[0]) for part in text.split() if 'cg="' in part]
+    assert o.cg is not None and o.cg.size == o.t.size
+    assert len(cgs) > 5
+    assert max(cgs) - min(cgs) > 1.0
+
+
+def test_rse_rebuilds_shifting_cg_when_series_missing(tmp_path):
+    cfg = bundled_motor("example_98mm")
+    s, _x = resolve(cfg)
+    n = 40
+    o = Output(
+        t=np.linspace(0.0, 2.0, n),
+        m_o=np.linspace(3.0, 0.2, n),
+        P_tnk=np.ones(n),
+        P_cmbr=np.ones(n),
+        mdot_o=np.ones(n) * 0.1,
+        mdot_f=np.ones(n) * 0.02,
+        OF=np.ones(n) * 5.0,
+        grn_ID=np.ones(n) * s.grn_ID0,
+        mdot_n=np.ones(n) * 0.12,
+        rdot=np.zeros(n),
+        m_f=np.linspace(1.5, 0.7, n),
+        F_thr=np.ones(n) * 200.0,
+        dP=np.zeros(n),
+        m_t=None,
+        cg=np.zeros(n),
+    )
+    path = tmp_path / "shift.rse"
+    export_rse(path, o, s, mfg="HCAT")
+    text = path.read_text(encoding="utf-8")
+    assert 'auto-calc-cg="0"' in text
+    cgs = [float(part.split('cg="')[1].split('"')[0]) for part in text.split() if 'cg="' in part]
+    assert len(cgs) > 5
+    assert max(cgs) - min(cgs) > 1.0
 
 
 def test_eng_header_uses_layout_length_and_notes_cg(tmp_path):

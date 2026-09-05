@@ -43,7 +43,7 @@ from hrap.engine.nox import nox
 from hrap.engine.sim import run
 from hrap.engine.summary import format_summary, summarize
 from hrap.gui.theme import apply_theme
-from hrap.gui.viz import MotorPanel, MotorView
+from hrap.gui.viz import MotorPanel, MotorView, _vent_visible
 from hrap.io.config import bundled_motor, default_cfg, load_json, load_matlab_mat, resolve, resolve_layout, save_json
 from hrap.io.export import export_csv, export_eng, export_rse
 from hrap.io.propellant import list_propellants, load_propellant
@@ -338,7 +338,7 @@ class MainWindow(QMainWindow):
         self.run_btn = QPushButton("Run")
         self.run_btn.setObjectName("runButton")
         self.run_btn.clicked.connect(self._run)
-        run_row.addWidget(QLabel("Configuration"))
+        run_row.addWidget(QLabel("Motor Name"))
         run_row.addWidget(self.name, 1)
         run_row.addWidget(self.run_btn)
         header_l.addLayout(run_row)
@@ -349,11 +349,17 @@ class MainWindow(QMainWindow):
         load_btn = QPushButton("Load")
         save_btn.clicked.connect(self._save_json)
         load_btn.clicked.connect(self._open_json)
-        io_row.addWidget(QLabel("Export"))
+        io_row.addWidget(QLabel("Manufacturer"))
         io_row.addWidget(self.mfg, 1)
         io_row.addWidget(save_btn)
         io_row.addWidget(load_btn)
         header_l.addLayout(io_row)
+
+        rse_row = QHBoxLayout()
+        self.rse_btn = QPushButton("Export .RSE")
+        self.rse_btn.clicked.connect(lambda: self._export("rse"))
+        rse_row.addWidget(self.rse_btn, 1)
+        header_l.addLayout(rse_row)
         wl.addWidget(header)
 
         scroll = QScrollArea()
@@ -973,10 +979,11 @@ class MainWindow(QMainWindow):
             return from_si(si, "in", "length")
 
         mass_pct = 100.0 * m_f / m_f0 if m_f0 > 1e-12 else 0.0
+        vnt_on = _vent_visible(vnt, vnt_D)
         vent_lines = (
             "Orifice Vent",
             f"Ø{inch(vnt_D):.3f} in",
-        )
+        ) if vnt_on else ()
         tank_lines = (
             "Oxidizer Tank",
             f"size: Ø{inch(tnk_D):.2f} x {inch(tnk_L):.2f} in",
@@ -1262,7 +1269,8 @@ class MainWindow(QMainWindow):
             if path:
                 export_csv(path, self._output, self._settings)
         elif kind == "rse":
-            path, _ = QFileDialog.getSaveFileName(self, "Export RSE", "motor.rse", "RSE (*.rse)")
+            stem = (self.name.text() or "motor").strip() or "motor"
+            path, _ = QFileDialog.getSaveFileName(self, "Export RSE", f"{stem}.rse", "RSE (*.rse)")
             if path:
                 export_rse(path, self._output, self._settings, OD=cfg["export_OD"], L=cfg["export_L"], mfg=cfg["mfg"])
         else:

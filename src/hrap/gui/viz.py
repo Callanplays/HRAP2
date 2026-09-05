@@ -20,6 +20,9 @@ SPEC_MIN_W = 56.0
 SPAN_H = 28.0
 RULER_H = 28.0
 TITLE_H = 18.0
+VENT_HEAD_PX = 16.0
+VENT_MIN_W = 5.0
+VENT_MIN_H = 12.0
 
 DARK_VIZ = {
     "bg": "#1a1d23",
@@ -122,6 +125,12 @@ class _Geom:
     y_max: float = 0.0
 
 
+def _vent_visible(state: str, diameter: float) -> bool:
+    if str(state).lower() not in {"none", "0", ""}:
+        return True
+    return float(diameter) > 1e-6
+
+
 def _geom(m: MotorView) -> _Geom:
     tnk_L = max(float(m.tnk_L), 1e-4)
     tnk_R = max(float(m.tnk_D), 1e-4) * 0.5
@@ -151,7 +160,7 @@ def _geom(m: MotorView) -> _Geom:
         port_R=port_R,
         inj_D=max(float(m.inj_D), 1e-6),
         inj_N=max(int(m.inj_N), 1),
-        vnt_on=str(m.vnt_state).lower() not in {"none", "0", ""},
+        vnt_on=_vent_visible(m.vnt_state, m.vnt_D),
         vnt_D=max(float(m.vnt_D), 0.0),
         r_th=r_th,
         r_ex=r_ex,
@@ -175,8 +184,7 @@ def _geom(m: MotorView) -> _Geom:
         x_min=lay.x_min,
         x_span=max(lay.overall_L, 1e-6),
     )
-    vent_h = 0.32 * 2.0 * tnk_R if g.vnt_on else 0.0
-    g.y_max = max(tnk_R, grn_R, r_ex, r_in) + vent_h
+    g.y_max = max(tnk_R, grn_R, r_ex, r_in)
     return g
 
 
@@ -323,12 +331,14 @@ class MotorVizWidget(QWidget):
         motor_h = inner.height() - label_h - SPAN_H - RULER_H - TITLE_H
         if motor_h < 36 or inner.width() < 40 or g.x_span <= 0:
             return
+        head_px = VENT_HEAD_PX if g.vnt_on else 0.0
+        body_h = max(motor_h - head_px, 24.0)
         sx = inner.width() / g.x_span
-        sy = motor_h / max(2.0 * g.y_max, 1e-6)
+        sy = body_h / max(2.0 * g.y_max, 1e-6)
         scale = min(sx, sy)
         used_w = g.x_span * scale
         ox = inner.left() + 0.5 * (inner.width() - used_w)
-        cy = inner.top() + label_h + 0.5 * motor_h
+        cy = inner.top() + label_h + head_px + 0.5 * body_h
 
         def X(x: float) -> float:
             return ox + (x - g.x_min) * scale
@@ -356,10 +366,11 @@ class MotorVizWidget(QWidget):
             p.drawRect(tank)
 
         if g.vnt_on:
-            vw = max(g.vnt_D, 4.0 / scale)
-            vh = max(0.30 * 2.0 * g.tnk_R, 8.0 / scale)
+            vw = max(g.vnt_D * scale, VENT_MIN_W)
+            room = max(tank.top() - (inner.top() + label_h) - 1.0, VENT_MIN_H)
+            vh = min(max(0.36 * tank.height(), VENT_MIN_H), room)
             vx = X(g.x_tnk0 + 0.05 * g.tnk_L)
-            vent = QRectF(vx, tank.top() - vh * scale, vw * scale, vh * scale)
+            vent = QRectF(vx - 0.5 * vw, tank.top() - vh, vw, vh)
             p.setBrush(_c(colors, "plate"))
             p.setPen(outline)
             p.drawRect(vent)
@@ -367,9 +378,20 @@ class MotorVizWidget(QWidget):
         if g.x_cmbr0 - g.x_tnk1 > 1e-6:
             feed_r = min(g.tnk_R, g.grn_R) * 0.18
             feed = box(g.x_tnk1, g.x_cmbr0, max(feed_r, 2.0 / scale / 2.0))
+            p.setPen(outline)
+            p.setBrush(_c(colors, "tank") if fill > 0 else _c(colors, "inj"))
+            p.drawRect(feed)
+
+        if g.x_case > g.x_plate1 + 1e-9:
+            case = box(g.x_plate1, g.x_case, g.grn_R)
             p.setBrush(_c(colors, "plate"))
             p.setPen(outline)
-            p.drawRect(feed)
+            p.drawRect(case)
+            if g.port_R > 0:
+                case_port = box(g.x_plate1, g.x_case, g.port_R)
+                p.setBrush(_c(colors, "port"))
+                p.setPen(QPen(_c(colors, "outline"), 0.8))
+                p.drawRect(case_port)
 
         grain = box(g.x_grn0, g.x_grn1, g.grn_R)
         p.setBrush(_c(colors, "grain"))
@@ -380,16 +402,6 @@ class MotorVizWidget(QWidget):
             p.setBrush(_c(colors, "port"))
             p.setPen(QPen(_c(colors, "outline"), 0.8))
             p.drawRect(port)
-        if g.x_case - g.x_grn1 > 1e-6:
-            case = box(g.x_grn1, g.x_case, g.grn_R)
-            p.setBrush(_c(colors, "plate"))
-            p.setPen(outline)
-            p.drawRect(case)
-            if g.port_R > 0:
-                case_port = box(g.x_grn1, g.x_case, g.port_R)
-                p.setBrush(_c(colors, "port"))
-                p.setPen(QPen(_c(colors, "outline"), 0.8))
-                p.drawRect(case_port)
 
         plate_r = max(g.tnk_R, g.grn_R)
         plate = box(g.x_plate0, g.x_plate1, plate_r)

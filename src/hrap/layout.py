@@ -144,11 +144,12 @@ def motor_layout(
     plate1 = cmbr0 + PLATE_L
     inj0 = plate0
     inj1 = plate0 + INJECTOR_L
-    grn0 = plate1
+    # Leftover chamber length is split so the grain sits in the middle of the TCA.
+    # The nozzle cone stays at the throat / exit geometry — never stretched.
+    x_case = plate1 + grn_L + extra
+    pad = 0.5 * extra
+    grn0 = plate1 + pad
     grn1 = grn0 + grn_L
-    # Leftover chamber length is a cylindrical case before the nozzle.
-    # The cone itself stays at the throat / exit geometry — never stretched.
-    x_case = grn1 + extra
     x_th = x_case + L_conv
     x_noz = x_th + L_div
     return MotorLayout(
