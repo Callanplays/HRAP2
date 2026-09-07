@@ -133,7 +133,7 @@ def export_rse(
     if t.size > 1 and np.trapezoid(F, t) != 0:
         F = F * (Itot / np.trapezoid(F, t))
 
-    OD = (s.grn_OD * 1.1) if OD is None else OD
+    OD = max(s.tnk_D, s.grn_OD) if OD is None else OD
     L = max(s.tnk_X, s.cmbr_X) if L is None else L
     D_exit = math.sqrt(s.noz_ER) * s.noz_thrt
     code = get_impulse_letter(Itot)
@@ -186,7 +186,7 @@ def export_eng(
     F = np.append(F, 0.0)
     if t.size > 1 and np.trapezoid(F, t) != 0:
         F = F * (Itot / np.trapezoid(F, t))
-    OD = s.grn_OD if OD is None else OD
+    OD = max(s.tnk_D, s.grn_OD) if OD is None else OD
     L = max(s.tnk_X, s.cmbr_X) if L is None else L
     code = get_impulse_letter(Itot)
     F_avg = int(round(Itot / T_burn)) if T_burn else 0

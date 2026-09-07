@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QEvent, QObject, QThread, Signal
+from PySide6.QtCore import Qt, QEvent, QObject, QSettings, QThread, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -269,6 +269,8 @@ class MainWindow(QMainWindow):
         self._thread = None
         self._worker = None
         self._hover_index = None
+        self._prefs = QSettings("HCAT", APP_NAME)
+        self._last_dir = str(self._prefs.value("lastFileDir") or "")
         self._build()
         self._cfg_to_form(self.cfg)
         self._connect_derived()
@@ -733,7 +735,7 @@ class MainWindow(QMainWindow):
         self.tburn.setValue(float(cfg.get("t_burn") or 0))
         self.dt.setValue(float(cfg.get("dt") or 0.001))
         self.reg_model.setCurrentText(cfg.get("reg_model") or "Constant OF")
-        self.dry_OD.set_display(from_si(cfg.get("export_OD") or to_si(cfg.get("grn_OD", 0) * 1.1, cfg.get("grn_OD_unit", "in"), "length"), "in", "length"), "in")
+        self.dry_OD.set_display(from_si(cfg.get("export_OD") or lay.overall_OD, "in", "length"), "in")
         self.dry_L.set_display(from_si(cfg.get("export_L") or lay.overall_L, "in", "length"), "in")
         adv = cfg.get("advanced") or {}
         self.adv_on.setChecked(bool(adv.get("enabled")))
@@ -839,6 +841,8 @@ class MainWindow(QMainWindow):
                 f"Overall length {from_si(lay.overall_L, unit, 'length'):.2f} {unit} "
                 f"(tank L {from_si(lay.tnk_L, unit, 'length'):.2f} {unit})."
             )
+            if not self.dry_OD.spin.hasFocus():
+                self.dry_OD.set_display(from_si(lay.overall_OD, self.dry_OD.unit.currentText(), "length"))
             if not self.dry_L.spin.hasFocus():
                 self.dry_L.set_display(from_si(lay.overall_L, self.dry_L.unit.currentText(), "length"))
         except Exception:
@@ -872,6 +876,7 @@ class MainWindow(QMainWindow):
             tnk_start=self._len_si(self.tnk_start),
             tnk_L=tnk_L,
             tnk_m=to_si(self.tnk_m.spin.value(), self.tnk_m.unit.currentText(), "mass"),
+            tnk_D=_tnk_D,
             cmbr_start=self._len_si(self.cmbr_start),
             cmbr_L=self._len_si(self.cmbr_L),
             cmbr_m=to_si(self.cmbr_m.spin.value(), self.cmbr_m.unit.currentText(), "mass"),
@@ -979,6 +984,9 @@ class MainWindow(QMainWindow):
             return from_si(si, "in", "length")
 
         mass_pct = 100.0 * m_f / m_f0 if m_f0 > 1e-12 else 0.0
+        dp_inj = P_tnk - P_cmbr
+        dp_psi = from_si(dp_inj, "psi", "pressure")
+        stiff = (dp_inj / P_cmbr) if P_cmbr > 1e-9 else 0.0
         vnt_on = _vent_visible(vnt, vnt_D)
         vent_lines = (
             "Orifice Vent",
@@ -997,6 +1005,8 @@ class MainWindow(QMainWindow):
             f"Cd: {inj_Cd:.2f}",
             f"A: {from_si(inj_A, 'in2', 'area'):.4f} in^2",
             f"ox_mdot = {ox_mdot:.2f} kg/s",
+            f"dP = {dp_psi:.0f} psi",
+            f"stiffness = {100.0 * stiff:.0f}%",
         )
         grain_lines = (
             "Fuel Grain",
@@ -1234,9 +1244,29 @@ class MainWindow(QMainWindow):
         self._clear_plot()
         self._refresh_viz()
 
+    def _dialog_dir(self) -> str:
+        if self._last_dir and Path(self._last_dir).is_dir():
+            return self._last_dir
+        return ""
+
+    def _dialog_path(self, filename: str = "") -> str:
+        folder = self._dialog_dir()
+        if not folder:
+            return filename
+        return str(Path(folder) / filename) if filename else folder
+
+    def _remember_file_dir(self, path: str) -> None:
+        folder = Path(path)
+        if not folder.is_dir():
+            folder = folder.parent
+        if folder.is_dir():
+            self._last_dir = str(folder)
+            self._prefs.setValue("lastFileDir", self._last_dir)
+
     def _open_json(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open motor", "", "HRAP JSON (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, "Open motor", self._dialog_path(), "HRAP JSON (*.json)")
         if path:
+            self._remember_file_dir(path)
             self._output = None
             self._hover_index = None
             self.cfg = load_json(path)
@@ -1245,8 +1275,9 @@ class MainWindow(QMainWindow):
             self._clear_plot()
 
     def _import_mat(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Import MATLAB motor", "", "MATLAB (*.mat)")
+        path, _ = QFileDialog.getOpenFileName(self, "Import MATLAB motor", self._dialog_path(), "MATLAB (*.mat)")
         if path:
+            self._remember_file_dir(path)
             self._output = None
             self._hover_index = None
             self.cfg = load_matlab_mat(path)
@@ -1255,8 +1286,10 @@ class MainWindow(QMainWindow):
             self._clear_plot()
 
     def _save_json(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save motor", (self.name.text() or "motor") + ".json", "HRAP JSON (*.json)")
+        suggested = (self.name.text() or "motor") + ".json"
+        path, _ = QFileDialog.getSaveFileName(self, "Save motor", self._dialog_path(suggested), "HRAP JSON (*.json)")
         if path:
+            self._remember_file_dir(path)
             save_json(path, self._form_to_cfg())
 
     def _export(self, kind: str):
@@ -1266,13 +1299,15 @@ class MainWindow(QMainWindow):
         cfg = self._form_to_cfg()
         dry_m, dry_cg = self._empty_mass_si()
         if kind == "csv":
-            path, _ = QFileDialog.getSaveFileName(self, "Export CSV", "HRAP_output.csv", "CSV (*.csv)")
+            path, _ = QFileDialog.getSaveFileName(self, "Export CSV", self._dialog_path("HRAP_output.csv"), "CSV (*.csv)")
             if path:
+                self._remember_file_dir(path)
                 export_csv(path, self._output, self._settings)
         elif kind == "rse":
             stem = (self.name.text() or "motor").strip() or "motor"
-            path, _ = QFileDialog.getSaveFileName(self, "Export RSE", f"{stem}.rse", "RSE (*.rse)")
+            path, _ = QFileDialog.getSaveFileName(self, "Export RSE", self._dialog_path(f"{stem}.rse"), "RSE (*.rse)")
             if path:
+                self._remember_file_dir(path)
                 export_rse(
                     path,
                     self._output,
@@ -1284,8 +1319,9 @@ class MainWindow(QMainWindow):
                     dry_cg=dry_cg,
                 )
         else:
-            path, _ = QFileDialog.getSaveFileName(self, "Export ENG", "motor.eng", "ENG (*.eng)")
+            path, _ = QFileDialog.getSaveFileName(self, "Export ENG", self._dialog_path("motor.eng"), "ENG (*.eng)")
             if path:
+                self._remember_file_dir(path)
                 export_eng(
                     path,
                     self._output,

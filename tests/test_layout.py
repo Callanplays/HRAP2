@@ -46,6 +46,59 @@ def test_gap_between_tank_and_chamber():
     assert abs(lay.dry_mass - 10.0) < 1e-12
     assert abs(lay.dry_cg - (4.0 * 0.20 + 6.0 * 0.65) / 10.0) < 1e-12
     assert abs(lay.overall_L - (0.90 - 0.10)) < 1e-9
+    assert abs(lay.overall_OD - 0.08) < 1e-12
+
+
+def test_overall_od_is_widest_of_tank_and_tca():
+    tank = motor_layout(
+        tnk_start=0.0,
+        tnk_L=0.20,
+        tnk_D=0.12,
+        grn_L=0.30,
+        grn_OD=0.08,
+        noz_thrt=0.025,
+        noz_exit=0.05,
+    )
+    tca = motor_layout(
+        tnk_start=0.0,
+        tnk_L=0.20,
+        tnk_D=0.06,
+        grn_L=0.30,
+        grn_OD=0.08,
+        noz_thrt=0.025,
+        noz_exit=0.05,
+    )
+    assert abs(tank.overall_OD - 0.12) < 1e-12
+    assert abs(tca.overall_OD - 0.08) < 1e-12
+
+
+def test_rse_dia_uses_widest_of_tank_and_tca(tmp_path):
+    cfg = default_cfg()
+    cfg["tnk_D"] = 5.0
+    cfg["tnk_D_unit"] = "in"
+    cfg["grn_OD"] = 3.625
+    cfg["grn_OD_unit"] = "in"
+    s, _x = resolve(cfg)
+    n = 8
+    o = Output(
+        t=np.linspace(0.0, 1.0, n),
+        m_o=np.linspace(1.0, 0.2, n),
+        P_tnk=np.ones(n),
+        P_cmbr=np.ones(n),
+        mdot_o=np.ones(n) * 0.1,
+        mdot_f=np.ones(n) * 0.02,
+        OF=np.ones(n) * 5.0,
+        grn_ID=np.ones(n) * s.grn_ID0,
+        mdot_n=np.ones(n) * 0.12,
+        rdot=np.zeros(n),
+        m_f=np.linspace(0.5, 0.2, n),
+        F_thr=np.ones(n) * 80.0,
+        dP=np.zeros(n),
+    )
+    path = tmp_path / "wide.rse"
+    export_rse(path, o, s, mfg="HCAT")
+    dia_mm = float(path.read_text(encoding="utf-8").split('dia="')[1].split('"')[0])
+    assert abs(dia_mm / 1000.0 - max(s.tnk_D, s.grn_OD)) < 1e-9
 
 
 def test_infer_matlab_aft_stations():
@@ -153,6 +206,7 @@ def test_hps01_massed_layout():
     assert abs(lay.cmbr_L - 24.0 * INCH) < 1e-6
     assert abs(lay.tnk_m - 14.0 * 0.453592) < 1e-6
     assert abs(lay.cmbr_m - 15.0 * 0.453592) < 1e-6
+    assert abs(lay.overall_OD - 3.625 * INCH) < 1e-6
     assert abs((lay.x_noz - lay.x_th) - L_div) < 1e-9
     assert abs((lay.x_th - lay.x_case) - L_conv) < 1e-9
     assert abs((lay.grn0 - lay.plate1) - (lay.x_case - lay.grn1)) < 1e-9

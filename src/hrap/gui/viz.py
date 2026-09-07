@@ -144,6 +144,7 @@ def _geom(m: MotorView) -> _Geom:
         tnk_start=float(m.tnk_start),
         tnk_L=tnk_L,
         tnk_m=float(m.tnk_dry_kg),
+        tnk_D=float(m.tnk_D),
         cmbr_start=m.cmbr_start,
         cmbr_L=float(m.cmbr_L),
         cmbr_m=float(m.cmbr_dry_kg),

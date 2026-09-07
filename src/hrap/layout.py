@@ -70,6 +70,8 @@ class MotorLayout:
     cmbr_L: float
     tnk_m: float
     cmbr_m: float
+    tnk_D: float = 0.0
+    grn_OD: float = 0.0
 
     @property
     def x_min(self) -> float:
@@ -82,6 +84,11 @@ class MotorLayout:
     @property
     def overall_L(self) -> float:
         return max(self.x_max - self.x_min, 0.0)
+
+    @property
+    def overall_OD(self) -> float:
+        """RSE / ENG motor diameter: wider of tank and TCA (grain/case)."""
+        return max(self.tnk_D, self.grn_OD)
 
     @property
     def tnk_mid(self) -> float:
@@ -118,6 +125,7 @@ def motor_layout(
     tnk_start: float,
     tnk_L: float,
     tnk_m: float = 0.0,
+    tnk_D: float = 0.0,
     cmbr_start: float | None = None,
     cmbr_L: float = 0.0,
     cmbr_m: float = 0.0,
@@ -172,6 +180,8 @@ def motor_layout(
         cmbr_L=mass_cmbr_L,
         tnk_m=max(float(tnk_m), 0.0),
         cmbr_m=max(float(cmbr_m), 0.0),
+        tnk_D=max(float(tnk_D), 0.0),
+        grn_OD=max(float(grn_OD), 0.0),
     )
 
 

@@ -199,6 +199,7 @@ def resolve_layout(cfg: dict[str, Any]) -> MotorLayout:
         tnk_start=tnk_start,
         tnk_L=tnk_L,
         tnk_m=_mass(cfg, "tnk_m"),
+        tnk_D=tnk_D,
         cmbr_start=cmbr_start,
         cmbr_L=cmbr_L,
         cmbr_m=_mass(cfg, "cmbr_m"),
