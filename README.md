@@ -28,7 +28,7 @@ python -m pip install -e .
 python -m hrap
 ```
 
-The window title is **HRAP (HCAT Fork) 1.0.0**. Edit the motor on the left, press **Run**, then inspect traces, the scaled motor schematic, and the performance summary on the right.
+The window title is **HRAP (HCAT Fork) 1.1.0**. Edit the motor on the left, press **Run**, then inspect traces, the scaled motor schematic, and the performance summary on the right.
 
 ## Batch / CLI
 
