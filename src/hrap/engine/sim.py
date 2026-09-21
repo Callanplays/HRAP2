@@ -101,6 +101,9 @@ def sim_loop(
             if now - last_emit >= 0.05 or i >= n or i <= 3:
                 on_progress(min(i, n), n)
                 last_emit = now
+        if s.grn_ID_limit is not None and x.grn_ID >= s.grn_ID_limit:
+            o.sim_end_cond = "Port Reached Outer Wall"
+            break
         if x.grn_ID >= s.grn_OD:
             o.sim_end_cond = "Fuel Depleted"
             break

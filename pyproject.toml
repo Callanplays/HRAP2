@@ -19,6 +19,7 @@ dependencies = [
     "scipy",
     "PySide6",
     "pyqtgraph",
+    "shapely>=2.0",
 ]
 
 [project.optional-dependencies]

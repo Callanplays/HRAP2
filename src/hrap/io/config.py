@@ -378,8 +378,16 @@ def resolve(cfg: dict[str, Any], get_sat_props=None) -> tuple[Settings, State]:
         ox_props=ox,
     )
     if adv.get("enabled") and adv.get("grain_shape") == "star":
-        from hrap.advanced.geometry import make_star_grain_fn
-        s.grain_fn = make_star_grain_fn(int(adv.get("star_tips") or 6))
+        from hrap.advanced.geometry import configure_star
+        configure_star(s, x, adv.get("star_tips", 6), float(adv.get("star_inner_ratio", 0.45)))
+    if adv.get("enabled") and adv.get("grain_shape") == "helical":
+        from hrap.advanced.helical import configure_helical
+        configure_helical(
+            s,
+            _len(adv, "helix_offset"),
+            _len(adv, "helix_pitch"),
+            float(adv.get("helix_regression_multiplier", 1.0)),
+        )
     return s, x
 
 

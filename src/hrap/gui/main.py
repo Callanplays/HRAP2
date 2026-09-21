@@ -532,13 +532,58 @@ class MainWindow(QMainWindow):
         self.ox_fluid = PlainComboBox()
         self.ox_fluid.addItems(["N2O_legacy", "NitrousOxide (CoolProp)", "Oxygen (CoolProp)"])
         self.grain_shape = PlainComboBox()
-        self.grain_shape.addItems(["cylindrical", "star"])
+        self.grain_shape.addItems(["cylindrical", "star", "helical"])
         self.star_tips = PlainSpinBox(); self.star_tips.setRange(3, 16); self.star_tips.setValue(6)
+        self.star_inner_ratio = PlainDoubleSpinBox()
+        self.star_inner_ratio.setDecimals(4)
+        self.star_inner_ratio.setRange(0.001, 0.999)
+        self.star_inner_ratio.setValue(0.45)
+        self.helix_offset = UnitRow(LENGTH_ITEMS, "in", 5)
+        self.helix_offset.spin.setValue(0.125)
+        self.helix_pitch = UnitRow(LENGTH_ITEMS, "in", 5)
+        self.helix_pitch.spin.setValue(3.0)
+        self.helix_multiplier = PlainDoubleSpinBox()
+        self.helix_multiplier.setDecimals(3)
+        self.helix_multiplier.setRange(0.001, 100.0)
+        self.helix_multiplier.setValue(1.0)
         af.addRow(self.adv_on)
         af.addRow(self.live_chem)
         af.addRow("Oxidizer fluid", self.ox_fluid)
         af.addRow("Grain shape", self.grain_shape)
         af.addRow("Star tips", self.star_tips)
+        af.addRow("Star valley / tip radius", self.star_inner_ratio)
+        star_note = QLabel(
+            "Star: requires Shifting OF. Grain ID is the initial tip-to-tip diameter. "
+            "The port grows by uniform normal offsets; ends are inhibited. "
+            "Stops at first outer-wall contact. Traces and schematic use an "
+            "equal-area circular diameter, not the star's tip diameter."
+        )
+        star_note.setWordWrap(True)
+        af.addRow(star_note)
+        af.addRow("Helix center offset", self.helix_offset)
+        af.addRow("Helix pitch (length / turn)", self.helix_pitch)
+        af.addRow("Assumed regression multiplier", self.helix_multiplier)
+        helix_note = QLabel(
+            "Helical: experimental fixed-shape model; requires Shifting OF. "
+            "Circles in axial planes, inhibited ends. Multiplier 1 includes only "
+            "geometric area; swirl enhancement and pressure loss are not predicted. "
+            "Stops at first outer-wall contact, possibly with fuel remaining. "
+            "The motor schematic shows an equivalent straight port."
+        )
+        helix_note.setWordWrap(True)
+        af.addRow(helix_note)
+        def show_shape_fields():
+            shape = self.grain_shape.currentText()
+            for name, fields, note in [
+                ("star", (self.star_tips, self.star_inner_ratio), star_note),
+                ("helical", (self.helix_offset, self.helix_pitch, self.helix_multiplier), helix_note),
+            ]:
+                for field in fields:
+                    field.setVisible(shape == name)
+                    af.labelForField(field).setVisible(shape == name)
+                note.setVisible(shape == name)
+        self.grain_shape.currentTextChanged.connect(show_shape_fields)
+        show_shape_fields()
         root.addWidget(adv)
         root.addStretch(1)
         scroll.setWidget(inner)
@@ -660,6 +705,12 @@ class MainWindow(QMainWindow):
                 "ox_fluid": self.ox_fluid.currentText(),
                 "grain_shape": self.grain_shape.currentText(),
                 "star_tips": self.star_tips.value(),
+                "star_inner_ratio": self.star_inner_ratio.value(),
+                "helix_offset": self.helix_offset.spin.value(),
+                "helix_offset_unit": self.helix_offset.unit.currentText(),
+                "helix_pitch": self.helix_pitch.spin.value(),
+                "helix_pitch_unit": self.helix_pitch.unit.currentText(),
+                "helix_regression_multiplier": self.helix_multiplier.value(),
                 "live_chem": self.live_chem.isChecked(),
             },
             "export_OD": to_si(self.dry_OD.spin.value(), self.dry_OD.unit.currentText(), "length"),
@@ -745,6 +796,10 @@ class MainWindow(QMainWindow):
             self.grain_shape.setCurrentText(str(adv["grain_shape"]))
         if adv.get("star_tips"):
             self.star_tips.setValue(int(adv["star_tips"]))
+        self.star_inner_ratio.setValue(float(adv.get("star_inner_ratio", 0.45)))
+        self.helix_offset.set_display(adv.get("helix_offset", 0.125), adv.get("helix_offset_unit") or ("m" if "helix_offset" in adv else "in"))
+        self.helix_pitch.set_display(adv.get("helix_pitch", 3.0), adv.get("helix_pitch_unit") or ("m" if "helix_pitch" in adv else "in"))
+        self.helix_multiplier.setValue(float(adv.get("helix_regression_multiplier", 1.0)))
         self.live_chem.setChecked(bool(adv.get("live_chem")))
         self._update_derived_labels()
 
@@ -756,9 +811,12 @@ class MainWindow(QMainWindow):
             self.grn_ID.spin, self.grn_OD.spin, self.grn_L.spin, self.rho.spin, self.const_OF,
             self.noz_thrt.spin, self.noz_ex, self.vnt_D.spin, self.vnt_Cd, self.P_cmbr.spin,
             self.tnk_start.spin, self.tnk_m.spin, self.cmbr_start.spin, self.cmbr_L.spin, self.cmbr_m.spin,
+            self.star_tips, self.star_inner_ratio,
         ):
             w.valueChanged.connect(self._update_derived_labels)
         self.rho.unit.currentTextChanged.connect(self._update_derived_labels)
+        self.grain_shape.currentTextChanged.connect(self._update_derived_labels)
+        self.adv_on.toggled.connect(self._update_derived_labels)
         self.P_cmbr.unit.currentTextChanged.connect(self._update_derived_labels)
         self.tnk_dd.currentTextChanged.connect(self._update_derived_labels)
         self.fill_dd.currentTextChanged.connect(self._update_derived_labels)
@@ -933,6 +991,10 @@ class MainWindow(QMainWindow):
         grn_L = self._len_si(self.grn_L)
         grn_OD = self._len_si(self.grn_OD)
         grn_ID = self._len_si(self.grn_ID)
+        if self.adv_on.isChecked() and self.grain_shape.currentText() == "star":
+            tips = self.star_tips.value()
+            area = tips * (grn_ID / 2)**2 * self.star_inner_ratio.value() * math.sin(math.pi / tips)
+            grn_ID = 2 * math.sqrt(area / math.pi)
         inj_D = self._len_si(self.inj_D)
         inj_N = int(self.inj_N.value())
         inj_Cd = float(self.inj_Cd.value())
@@ -973,6 +1035,7 @@ class MainWindow(QMainWindow):
             fill = fill0 * (m_o / m_init) if m_init else fill0
             grn_ID = float(o.grn_ID[i])
             m_f = float(o.m_f[i])
+            m_f0 = float(o.m_f[0])
             ox_mdot = float(o.mdot_o[i])
             fuel_mdot = float(o.mdot_f[i])
             noz_mdot = float(o.mdot_n[i])

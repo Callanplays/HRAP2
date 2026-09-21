@@ -45,7 +45,9 @@ Save and load motors as JSON, import original MATLAB `.mat` configs, and export 
 python -m pip install -e ".[advanced]"
 ```
 
-enables CoolProp oxidizers and star-grain geometry. Turning these on in the GUI warns that results will not match original HRAP.
+enables optional CoolProp oxidizers and other advanced extras. The standard source installation includes Shapely for the [experimental star-grain model](docs/star-grain.md). Star mode now uses normal-offset geometry with consistent fuel mass and chamber volume and requires Shifting OF. Tip count and valley/tip ratio are editable; port-ID traces show an equal-area circle. Turning advanced options on warns that results will not match original HRAP.
+
+The source UI also supports an [experimental helical grain](docs/helical-grain.md), using the standard SciPy dependency. Enable advanced options, choose `helical`, and use `Shifting OF`. Offset, pitch, and an explicitly assumed regression multiplier let you study a fixed helical shape; swirl enhancement is not predicted. The model conserves fuel/port volume and stops at first outer-wall contact. See the linked assumptions before interpreting its results. The motor schematic still shows an equivalent straight port.
 
 ## Tests
 

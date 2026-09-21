@@ -68,6 +68,7 @@ class Settings:
     prop_T: np.ndarray
     get_sat_props: Optional[Callable[[float], OxProps]] = None
     grain_fn: Optional[Callable] = None
+    grn_ID_limit: Optional[float] = None
 
 
 @dataclass
