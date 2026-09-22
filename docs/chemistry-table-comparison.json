@@ -1,0 +1,833 @@
+{
+  "cantera_version": "3.2.0",
+  "thermo_sha256": "6cb281dd2af0ee91ae0abd34b87ac277328f6a88084a89a41c27269a35e17efd",
+  "stored_tables_exact_match": {
+    "ABS": {
+      "OF": true,
+      "Pc": true,
+      "k": true,
+      "M": true,
+      "T": true
+    },
+    "Asphalt": {
+      "OF": true,
+      "Pc": true,
+      "k": true,
+      "M": true,
+      "T": true
+    },
+    "HDPE": {
+      "OF": true,
+      "Pc": true,
+      "k": true,
+      "M": true,
+      "T": true
+    },
+    "HTPB": {
+      "OF": true,
+      "Pc": true,
+      "k": true,
+      "M": true,
+      "T": true
+    },
+    "HTPB_Paraffin": {
+      "OF": true,
+      "Pc": true,
+      "k": true,
+      "M": true,
+      "T": true
+    },
+    "Metalized_Plastisol": {
+      "OF": true,
+      "Pc": true,
+      "k": true,
+      "M": true,
+      "T": true
+    },
+    "Paraffin": {
+      "OF": true,
+      "Pc": true,
+      "k": true,
+      "M": true,
+      "T": true
+    },
+    "Sorbitol": {
+      "OF": true,
+      "Pc": true,
+      "k": true,
+      "M": true,
+      "T": true
+    }
+  },
+  "example": {
+    "fuel": "ABS",
+    "OF": 6,
+    "Pc": 3000000.0,
+    "stored": {
+      "T": 3284.6217,
+      "M": 27.0881,
+      "gamma": 1.1737
+    },
+    "scenarios": [
+      {
+        "label": "Current live assumptions",
+        "fuel_recipe": {
+          "formula": "ABS",
+          "composition": {
+            "C": 8.0,
+            "H": 8.0,
+            "N": 1.0
+          },
+          "h0": 147000000.0
+        },
+        "oxidizer": "N2O",
+        "T": 3408.8578136822352,
+        "M": 27.43404070032329,
+        "gamma_frozen": 1.2515061890048538,
+        "h_feed_J_kg": 1697573.9346538577,
+        "gamma_equilibrium_cp_cv": 1.17607663395505,
+        "Cp_equilibrium": 3972.626336278241
+      },
+      {
+        "label": "Change only oxidizer to liquid N2O at 298.15 K",
+        "fuel_recipe": {
+          "formula": "ABS",
+          "composition": {
+            "C": 8.0,
+            "H": 8.0,
+            "N": 1.0
+          },
+          "h0": 147000000.0
+        },
+        "oxidizer": "N2O(L),298.15K",
+        "T": 3344.1455074996056,
+        "M": 27.644872667482954,
+        "gamma_frozen": 1.249253412254478,
+        "h_feed_J_kg": 1445542.0411134232,
+        "gamma_equilibrium_cp_cv": 1.1734721693173924,
+        "Cp_equilibrium": 3813.9278486179996
+      },
+      {
+        "label": "Change only fuel to later upstream Python recipe",
+        "fuel_recipe": {
+          "composition": {
+            "C": 3.85,
+            "H": 4.85,
+            "N": 0.43
+          },
+          "h0": -62630000.0
+        },
+        "oxidizer": "N2O",
+        "T": 3314.5764161461207,
+        "M": 27.02080368416538,
+        "gamma_frozen": 1.248123444781061,
+        "h_feed_J_kg": 1363294.286467733,
+        "gamma_equilibrium_cp_cv": 1.1742132811730028,
+        "Cp_equilibrium": 3677.9654370095195
+      },
+      {
+        "label": "Later upstream Python recipe and liquid oxidizer",
+        "fuel_recipe": {
+          "composition": {
+            "C": 3.85,
+            "H": 4.85,
+            "N": 0.43
+          },
+          "h0": -62630000.0
+        },
+        "oxidizer": "N2O(L),298.15K",
+        "T": 3243.7958570536302,
+        "M": 27.20870705883935,
+        "gamma_frozen": 1.2462546732133,
+        "h_feed_J_kg": 1111262.3929272986,
+        "gamma_equilibrium_cp_cv": 1.1731902936056755,
+        "Cp_equilibrium": 3440.861187696615
+      },
+      {
+        "label": "Inferred reconstruction: upstream composition, ZERO fuel formation enthalpy, liquid oxidizer",
+        "fuel_recipe": {
+          "composition": {
+            "C": 3.85,
+            "H": 4.85,
+            "N": 0.43
+          },
+          "h0": 0.0
+        },
+        "oxidizer": "N2O(L),298.15K",
+        "T": 3288.309383745726,
+        "M": 27.092940286167607,
+        "gamma_frozen": 1.2473952198953904,
+        "h_feed_J_kg": 1267810.6954146149,
+        "gamma_equilibrium_cp_cv": 1.17369725110674,
+        "Cp_equilibrium": 3591.8656837815956
+      }
+    ]
+  },
+  "derivative_step_check": {
+    "relative_temperature_step": 1e-05,
+    "T": 3408.8578136822352,
+    "M": 27.43404070032329,
+    "gamma_frozen": 1.2515061890048538,
+    "h_feed_J_kg": 1697573.9346538577,
+    "gamma_equilibrium_cp_cv": 1.176076600756147,
+    "Cp_equilibrium": 3972.6264088361786
+  },
+  "ABS_48_point_error_percent": {
+    "T": {
+      "mean_absolute_percent": 6.850880136382703,
+      "min_signed_percent": 2.4748250332156108,
+      "max_signed_percent": 13.821630064337654
+    },
+    "M": {
+      "mean_absolute_percent": 5.3835551171629445,
+      "min_signed_percent": 0.25073336370009525,
+      "max_signed_percent": 29.529715878644303
+    },
+    "gamma_frozen": {
+      "mean_absolute_percent": 5.3962422524745035,
+      "min_signed_percent": -5.694180701016382,
+      "max_signed_percent": 8.248490132752284
+    },
+    "gamma_equilibrium_cp_cv": {
+      "mean_absolute_percent": 1.5258302756401616,
+      "min_signed_percent": -7.403256900573818,
+      "max_signed_percent": 1.558345605046818
+    }
+  },
+  "ABS_48_points": [
+    {
+      "OF": 1.0,
+      "Pc": 500000.0,
+      "stored_T": 1394.8566,
+      "stored_M": 21.9887,
+      "stored_gamma": 1.2261,
+      "T": 1568.4911512897365,
+      "M": 28.407620777301553,
+      "gamma_frozen": 1.1738870015033644,
+      "h_feed_J_kg": 1508634.5535029413,
+      "gamma_equilibrium_cp_cv": 1.1357015410369975,
+      "Cp_equilibrium": 5146.579523137076
+    },
+    {
+      "OF": 2.5,
+      "Pc": 500000.0,
+      "stored_T": 2086.8632,
+      "stored_M": 21.8998,
+      "stored_gamma": 1.2459,
+      "T": 2294.9194578519805,
+      "M": 23.05733820966878,
+      "gamma_frozen": 1.281047162718925,
+      "h_feed_J_kg": 1621998.1821934911,
+      "gamma_equilibrium_cp_cv": 1.263000215204206,
+      "Cp_equilibrium": 1776.1149552832417
+    },
+    {
+      "OF": 3.5,
+      "Pc": 500000.0,
+      "stored_T": 2593.9404,
+      "stored_M": 23.2201,
+      "stored_gamma": 1.2481,
+      "T": 2907.061581862867,
+      "M": 24.02203786058708,
+      "gamma_frozen": 1.2802697802368264,
+      "h_feed_J_kg": 1655587.4055092097,
+      "gamma_equilibrium_cp_cv": 1.2227829413023976,
+      "Cp_equilibrium": 2308.636585385192
+    },
+    {
+      "OF": 5.0,
+      "Pc": 500000.0,
+      "stored_T": 3056.7824,
+      "stored_M": 25.7589,
+      "stored_gamma": 1.1769,
+      "T": 3203.16594978866,
+      "M": 26.19677534227113,
+      "gamma_frozen": 1.2620027667384897,
+      "h_feed_J_kg": 1684977.9759104634,
+      "gamma_equilibrium_cp_cv": 1.174987380315645,
+      "Cp_equilibrium": 4269.782061227185
+    },
+    {
+      "OF": 6.0,
+      "Pc": 500000.0,
+      "stored_T": 3113.9,
+      "stored_M": 26.721,
+      "stored_gamma": 1.1668,
+      "T": 3212.6454140048563,
+      "M": 27.005568479511496,
+      "gamma_frozen": 1.2581213431187728,
+      "h_feed_J_kg": 1697573.9346538577,
+      "gamma_equilibrium_cp_cv": 1.1711588822734977,
+      "Cp_equilibrium": 4878.722099580146
+    },
+    {
+      "OF": 7.5,
+      "Pc": 500000.0,
+      "stored_T": 3094.3358,
+      "stored_M": 27.6334,
+      "stored_gamma": 1.1631,
+      "T": 3172.9300132563108,
+      "M": 27.798764421799817,
+      "gamma_frozen": 1.2557858623154956,
+      "h_feed_J_kg": 1710910.832146864,
+      "gamma_equilibrium_cp_cv": 1.1674404095131556,
+      "Cp_equilibrium": 4872.377235223765
+    },
+    {
+      "OF": 8.5,
+      "Pc": 500000.0,
+      "stored_T": 3061.3259,
+      "stored_M": 28.0475,
+      "stored_gamma": 1.1613,
+      "T": 3137.088359721513,
+      "M": 28.16555633462383,
+      "gamma_frozen": 1.2552615981843316,
+      "h_feed_J_kg": 1717462.2905644807,
+      "gamma_equilibrium_cp_cv": 1.1652273754991447,
+      "Cp_equilibrium": 4657.883283301342
+    },
+    {
+      "OF": 10.0,
+      "Pc": 500000.0,
+      "stored_T": 3003.5367,
+      "stored_M": 28.4953,
+      "stored_gamma": 1.1596,
+      "T": 3080.7420849899518,
+      "M": 28.566747224186436,
+      "gamma_frozen": 1.2552494915793955,
+      "h_feed_J_kg": 1725056.0264576275,
+      "gamma_equilibrium_cp_cv": 1.1629211615405324,
+      "Cp_equilibrium": 4261.235586529257
+    },
+    {
+      "OF": 1.0,
+      "Pc": 1500000.0,
+      "stored_T": 1419.6883,
+      "stored_M": 22.2222,
+      "stored_gamma": 1.2282,
+      "T": 1614.4906033020843,
+      "M": 28.784352521984093,
+      "gamma_frozen": 1.169936298485278,
+      "h_feed_J_kg": 1508634.5535029413,
+      "gamma_equilibrium_cp_cv": 1.1405483570553367,
+      "Cp_equilibrium": 4560.264850992668
+    },
+    {
+      "OF": 2.5,
+      "Pc": 1500000.0,
+      "stored_T": 2089.1882,
+      "stored_M": 21.9106,
+      "stored_gamma": 1.2476,
+      "T": 2301.2497090882816,
+      "M": 23.074897843571712,
+      "gamma_frozen": 1.2806600522461673,
+      "h_feed_J_kg": 1621998.1821934911,
+      "gamma_equilibrium_cp_cv": 1.2667928587993649,
+      "Cp_equilibrium": 1752.0345807873216
+    },
+    {
+      "OF": 3.5,
+      "Pc": 1500000.0,
+      "stored_T": 2611.2755,
+      "stored_M": 23.2532,
+      "stored_gamma": 1.2587,
+      "T": 2951.252468337444,
+      "M": 24.107875280855183,
+      "gamma_frozen": 1.2787037540392758,
+      "h_feed_J_kg": 1655587.4055092097,
+      "gamma_equilibrium_cp_cv": 1.2363407058805196,
+      "Cp_equilibrium": 2057.653847016988
+    },
+    {
+      "OF": 5.0,
+      "Pc": 1500000.0,
+      "stored_T": 3139.2544,
+      "stored_M": 25.9276,
+      "stored_gamma": 1.1863,
+      "T": 3313.495420160472,
+      "M": 26.42609959523753,
+      "gamma_frozen": 1.2583224007087905,
+      "h_feed_J_kg": 1684977.9759104634,
+      "gamma_equilibrium_cp_cv": 1.1799813258679543,
+      "Cp_equilibrium": 3650.8023456103892
+    },
+    {
+      "OF": 6.0,
+      "Pc": 1500000.0,
+      "stored_T": 3219.9222,
+      "stored_M": 26.949,
+      "stored_gamma": 1.1708,
+      "T": 3333.3635856603028,
+      "M": 27.26886659431768,
+      "gamma_frozen": 1.254026247082785,
+      "h_feed_J_kg": 1697573.9346538577,
+      "gamma_equilibrium_cp_cv": 1.174094866433542,
+      "Cp_equilibrium": 4297.899422869304
+    },
+    {
+      "OF": 7.5,
+      "Pc": 1500000.0,
+      "stored_T": 3203.527,
+      "stored_M": 27.8812,
+      "stored_gamma": 1.1662,
+      "T": 3290.8015243382592,
+      "M": 28.068235497120103,
+      "gamma_frozen": 1.2516804933537338,
+      "h_feed_J_kg": 1710910.832146864,
+      "gamma_equilibrium_cp_cv": 1.17023534784615,
+      "Cp_equilibrium": 4349.613848323583
+    },
+    {
+      "OF": 8.5,
+      "Pc": 1500000.0,
+      "stored_T": 3165.8136,
+      "stored_M": 28.2901,
+      "stored_gamma": 1.1645,
+      "T": 3249.4933078982244,
+      "M": 28.427715674281004,
+      "gamma_frozen": 1.2512868581511631,
+      "h_feed_J_kg": 1717462.2905644807,
+      "gamma_equilibrium_cp_cv": 1.1682283977884207,
+      "Cp_equilibrium": 4158.336851328893
+    },
+    {
+      "OF": 10.0,
+      "Pc": 1500000.0,
+      "stored_T": 3097.9779,
+      "stored_M": 28.7193,
+      "stored_gamma": 1.1636,
+      "T": 3183.4302495481465,
+      "M": 28.81100292477512,
+      "gamma_frozen": 1.2515463807776077,
+      "h_feed_J_kg": 1725056.0264576275,
+      "gamma_equilibrium_cp_cv": 1.1664565639892663,
+      "Cp_equilibrium": 3789.5797354287097
+    },
+    {
+      "OF": 1.0,
+      "Pc": 2500000.0,
+      "stored_T": 1437.5365,
+      "stored_M": 22.3956,
+      "stored_gamma": 1.2307,
+      "T": 1635.955969882741,
+      "M": 28.97568756566305,
+      "gamma_frozen": 1.1680393472273782,
+      "h_feed_J_kg": 1508634.5535029413,
+      "gamma_equilibrium_cp_cv": 1.1424130556701484,
+      "Cp_equilibrium": 4326.9804790963235
+    },
+    {
+      "OF": 2.5,
+      "Pc": 2500000.0,
+      "stored_T": 2090.4841,
+      "stored_M": 21.9193,
+      "stored_gamma": 1.2482,
+      "T": 2304.4718915866974,
+      "M": 23.086138195279645,
+      "gamma_frozen": 1.2804070718358658,
+      "h_feed_J_kg": 1621998.1821934911,
+      "gamma_equilibrium_cp_cv": 1.2676512698421945,
+      "Cp_equilibrium": 1753.671256715089
+    },
+    {
+      "OF": 3.5,
+      "Pc": 2500000.0,
+      "stored_T": 2617.1383,
+      "stored_M": 23.2646,
+      "stored_gamma": 1.2626,
+      "T": 2967.624329773454,
+      "M": 24.13994586958279,
+      "gamma_frozen": 1.2781239509889093,
+      "h_feed_J_kg": 1655587.4055092097,
+      "gamma_equilibrium_cp_cv": 1.2421044306676652,
+      "Cp_equilibrium": 1968.0733065304362
+    },
+    {
+      "OF": 5.0,
+      "Pc": 2500000.0,
+      "stored_T": 3173.6,
+      "stored_M": 25.9977,
+      "stored_gamma": 1.1912,
+      "T": 3362.558684095266,
+      "M": 26.52810873327121,
+      "gamma_frozen": 1.2567099942654363,
+      "h_feed_J_kg": 1684977.9759104634,
+      "gamma_equilibrium_cp_cv": 1.1827112530173858,
+      "Cp_equilibrium": 3392.8915771373827
+    },
+    {
+      "OF": 6.0,
+      "Pc": 2500000.0,
+      "stored_T": 3267.8204,
+      "stored_M": 27.052,
+      "stored_gamma": 1.1729,
+      "T": 3389.0895974609743,
+      "M": 27.390760986249944,
+      "gamma_frozen": 1.252163037650734,
+      "h_feed_J_kg": 1697573.9346538577,
+      "gamma_equilibrium_cp_cv": 1.1755449812270247,
+      "Cp_equilibrium": 4055.313543035554
+    },
+    {
+      "OF": 7.5,
+      "Pc": 2500000.0,
+      "stored_T": 3254.054,
+      "stored_M": 27.9964,
+      "stored_gamma": 1.1676,
+      "T": 3345.6322410410003,
+      "M": 28.194348671418435,
+      "gamma_frozen": 1.2497949579825933,
+      "h_feed_J_kg": 1710910.832146864,
+      "gamma_equilibrium_cp_cv": 1.1715719506167905,
+      "Cp_equilibrium": 4133.008764789347
+    },
+    {
+      "OF": 8.5,
+      "Pc": 2500000.0,
+      "stored_T": 3214.0054,
+      "stored_M": 28.4026,
+      "stored_gamma": 1.1661,
+      "T": 3301.5503413500837,
+      "M": 28.55000562602574,
+      "gamma_frozen": 1.2494674857773185,
+      "h_feed_J_kg": 1717462.2905644807,
+      "gamma_equilibrium_cp_cv": 1.1696740848152318,
+      "Cp_equilibrium": 3950.2948907075665
+    },
+    {
+      "OF": 10.0,
+      "Pc": 2500000.0,
+      "stored_T": 3140.8892,
+      "stored_M": 28.8218,
+      "stored_gamma": 1.1655,
+      "T": 3230.3903622175094,
+      "M": 28.923603030389348,
+      "gamma_frozen": 1.2498702406672033,
+      "h_feed_J_kg": 1725056.0264576275,
+      "gamma_equilibrium_cp_cv": 1.1681943772939074,
+      "Cp_equilibrium": 3591.715877870728
+    },
+    {
+      "OF": 1.0,
+      "Pc": 3000000.0,
+      "stored_T": 1444.9559,
+      "stored_M": 22.469,
+      "stored_gamma": 1.2319,
+      "T": 1643.6013106398932,
+      "M": 29.046231817201452,
+      "gamma_frozen": 1.1673559644375395,
+      "h_feed_J_kg": 1508634.5535029413,
+      "gamma_equilibrium_cp_cv": 1.1429891678073174,
+      "Cp_equilibrium": 4248.525376689013
+    },
+    {
+      "OF": 2.5,
+      "Pc": 3000000.0,
+      "stored_T": 2091.0368,
+      "stored_M": 21.9234,
+      "stored_gamma": 1.2484,
+      "T": 2305.781083101315,
+      "M": 23.09109714847116,
+      "gamma_frozen": 1.2802947632307244,
+      "h_feed_J_kg": 1621998.1821934911,
+      "gamma_equilibrium_cp_cv": 1.2678147005437705,
+      "Cp_equilibrium": 1756.6385292312073
+    },
+    {
+      "OF": 3.5,
+      "Pc": 3000000.0,
+      "stored_T": 2618.9497,
+      "stored_M": 23.2681,
+      "stored_gamma": 1.2638,
+      "T": 2972.8596744091665,
+      "M": 24.15025568015159,
+      "gamma_frozen": 1.2779381783812311,
+      "h_feed_J_kg": 1655587.4055092097,
+      "gamma_equilibrium_cp_cv": 1.2440446370665181,
+      "Cp_equilibrium": 1939.8078482584915
+    },
+    {
+      "OF": 5.0,
+      "Pc": 3000000.0,
+      "stored_T": 3185.1547,
+      "stored_M": 26.0213,
+      "stored_gamma": 1.1931,
+      "T": 3379.6157359329513,
+      "M": 26.563561065084823,
+      "gamma_frozen": 1.2561529500120183,
+      "h_feed_J_kg": 1684977.9759104634,
+      "gamma_equilibrium_cp_cv": 1.1837570294267619,
+      "Cp_equilibrium": 3305.3798900821625
+    },
+    {
+      "OF": 6.0,
+      "Pc": 3000000.0,
+      "stored_T": 3284.6217,
+      "stored_M": 27.0881,
+      "stored_gamma": 1.1737,
+      "T": 3408.8578136822352,
+      "M": 27.43404070032329,
+      "gamma_frozen": 1.2515061890048538,
+      "h_feed_J_kg": 1697573.9346538577,
+      "gamma_equilibrium_cp_cv": 1.17607663395505,
+      "Cp_equilibrium": 3972.626336278241
+    },
+    {
+      "OF": 7.5,
+      "Pc": 3000000.0,
+      "stored_T": 3272.0131,
+      "stored_M": 28.0374,
+      "stored_gamma": 1.1682,
+      "T": 3365.1688709335335,
+      "M": 28.239397517169394,
+      "gamma_frozen": 1.2491267670638535,
+      "h_feed_J_kg": 1710910.832146864,
+      "gamma_equilibrium_cp_cv": 1.1720533442331498,
+      "Cp_equilibrium": 4059.457772063949
+    },
+    {
+      "OF": 8.5,
+      "Pc": 3000000.0,
+      "stored_T": 3231.1077,
+      "stored_M": 28.4427,
+      "stored_gamma": 1.1667,
+      "T": 3320.058756196991,
+      "M": 28.593620274393338,
+      "gamma_frozen": 1.2488238081401788,
+      "h_feed_J_kg": 1717462.2905644807,
+      "gamma_equilibrium_cp_cv": 1.1701968965088367,
+      "Cp_equilibrium": 3879.46257869989
+    },
+    {
+      "OF": 10.0,
+      "Pc": 3000000.0,
+      "stored_T": 3156.0026,
+      "stored_M": 28.858,
+      "stored_gamma": 1.1662,
+      "T": 3246.9808463094646,
+      "M": 28.963524257654154,
+      "gamma_frozen": 1.2492805829789457,
+      "h_feed_J_kg": 1725056.0264576275,
+      "gamma_equilibrium_cp_cv": 1.1688292853735056,
+      "Cp_equilibrium": 3524.128850292541
+    },
+    {
+      "OF": 1.0,
+      "Pc": 4000000.0,
+      "stored_T": 1457.7818,
+      "stored_M": 22.5978,
+      "stored_gamma": 1.234,
+      "T": 1655.6252918484686,
+      "M": 29.159734135051416,
+      "gamma_frozen": 1.1662732526080355,
+      "h_feed_J_kg": 1508634.5535029413,
+      "gamma_equilibrium_cp_cv": 1.1437888391305748,
+      "Cp_equilibrium": 4129.293263347205
+    },
+    {
+      "OF": 2.5,
+      "Pc": 4000000.0,
+      "stored_T": 2092.0537,
+      "stored_M": 21.9313,
+      "stored_gamma": 1.2488,
+      "T": 2308.106361827158,
+      "M": 23.100320073043317,
+      "gamma_frozen": 1.2800852618830476,
+      "h_feed_J_kg": 1621998.1821934911,
+      "gamma_equilibrium_cp_cv": 1.2679128067161292,
+      "Cp_equilibrium": 1764.2569003653891
+    },
+    {
+      "OF": 3.5,
+      "Pc": 4000000.0,
+      "stored_T": 2621.5389,
+      "stored_M": 23.2733,
+      "stored_gamma": 1.2656,
+      "T": 2980.5009225407903,
+      "M": 24.16537486504655,
+      "gamma_frozen": 1.277666300200445,
+      "h_feed_J_kg": 1655587.4055092097,
+      "gamma_equilibrium_cp_cv": 1.246966125366105,
+      "Cp_equilibrium": 1898.8817480539526
+    },
+    {
+      "OF": 5.0,
+      "Pc": 4000000.0,
+      "stored_T": 3202.5929,
+      "stored_M": 26.057,
+      "stored_gamma": 1.1961,
+      "T": 3405.9759784403477,
+      "M": 26.618329471297944,
+      "gamma_frozen": 1.2552956616278603,
+      "h_feed_J_kg": 1684977.9759104634,
+      "gamma_equilibrium_cp_cv": 1.185487861964176,
+      "Cp_equilibrium": 3172.1454423169234
+    },
+    {
+      "OF": 6.0,
+      "Pc": 4000000.0,
+      "stored_T": 3310.7671,
+      "stored_M": 27.1443,
+      "stored_gamma": 1.175,
+      "T": 3439.8825958246075,
+      "M": 27.501997800324474,
+      "gamma_frozen": 1.250479643686799,
+      "h_feed_J_kg": 1697573.9346538577,
+      "gamma_equilibrium_cp_cv": 1.1769314626878764,
+      "Cp_equilibrium": 3846.1218599456565
+    },
+    {
+      "OF": 7.5,
+      "Pc": 4000000.0,
+      "stored_T": 3300.2476,
+      "stored_M": 28.102,
+      "stored_gamma": 1.169,
+      "T": 3395.9371640213976,
+      "M": 28.310465058765704,
+      "gamma_frozen": 1.2480782694433024,
+      "h_feed_J_kg": 1710910.832146864,
+      "gamma_equilibrium_cp_cv": 1.1728167357606294,
+      "Cp_equilibrium": 3947.2400777200896
+    },
+    {
+      "OF": 8.5,
+      "Pc": 4000000.0,
+      "stored_T": 3257.9648,
+      "stored_M": 28.5057,
+      "stored_gamma": 1.1676,
+      "T": 3349.161801036155,
+      "M": 28.662346795881913,
+      "gamma_frozen": 1.2478149996518642,
+      "h_feed_J_kg": 1717462.2905644807,
+      "gamma_equilibrium_cp_cv": 1.171028590642456,
+      "Cp_equilibrium": 3771.1808624347304
+    },
+    {
+      "OF": 10.0,
+      "Pc": 4000000.0,
+      "stored_T": 3179.603,
+      "stored_M": 28.9147,
+      "stored_gamma": 1.1674,
+      "T": 3272.9455757203023,
+      "M": 29.026155173625988,
+      "gamma_frozen": 1.2483603029406165,
+      "h_feed_J_kg": 1725056.0264576275,
+      "gamma_equilibrium_cp_cv": 1.1698469669565785,
+      "Cp_equilibrium": 3420.5858634924757
+    },
+    {
+      "OF": 1.0,
+      "Pc": 5000000.0,
+      "stored_T": 1468.6562,
+      "stored_M": 22.7089,
+      "stored_gamma": 1.2358,
+      "T": 1664.9032303289039,
+      "M": 29.24946309628117,
+      "gamma_frozen": 1.1654313148968396,
+      "h_feed_J_kg": 1508634.5535029413,
+      "gamma_equilibrium_cp_cv": 1.1443105512227087,
+      "Cp_equilibrium": 4040.3699009505985
+    },
+    {
+      "OF": 2.5,
+      "Pc": 5000000.0,
+      "stored_T": 2093.0006,
+      "stored_M": 21.9391,
+      "stored_gamma": 1.2491,
+      "T": 2310.190434137664,
+      "M": 23.108925719602837,
+      "gamma_frozen": 1.2798893727018965,
+      "h_feed_J_kg": 1621998.1821934911,
+      "gamma_equilibrium_cp_cv": 1.2678529339304463,
+      "Cp_equilibrium": 1772.8902649423662
+    },
+    {
+      "OF": 3.5,
+      "Pc": 5000000.0,
+      "stored_T": 2623.3389,
+      "stored_M": 23.277,
+      "stored_gamma": 1.2669,
+      "T": 2985.927098091865,
+      "M": 24.176182892426947,
+      "gamma_frozen": 1.2774723611394436,
+      "h_feed_J_kg": 1655587.4055092097,
+      "gamma_equilibrium_cp_cv": 1.249107558161254,
+      "Cp_equilibrium": 1870.0561837459743
+    },
+    {
+      "OF": 5.0,
+      "Pc": 5000000.0,
+      "stored_T": 3215.4305,
+      "stored_M": 26.0832,
+      "stored_gamma": 1.1985,
+      "T": 3425.9151173080245,
+      "M": 26.65973608589147,
+      "gamma_frozen": 1.2546500867748858,
+      "h_feed_J_kg": 1684977.9759104634,
+      "gamma_equilibrium_cp_cv": 1.186900412450908,
+      "Cp_equilibrium": 3072.891892683068
+    },
+    {
+      "OF": 6.0,
+      "Pc": 5000000.0,
+      "stored_T": 3330.7082,
+      "stored_M": 27.1871,
+      "stored_gamma": 1.1761,
+      "T": 3463.783060742759,
+      "M": 27.554372030122813,
+      "gamma_frozen": 1.249692434588039,
+      "h_feed_J_kg": 1697573.9346538577,
+      "gamma_equilibrium_cp_cv": 1.1776086037099982,
+      "Cp_equilibrium": 3751.2200603851898
+    },
+    {
+      "OF": 7.5,
+      "Pc": 5000000.0,
+      "stored_T": 3322.0473,
+      "stored_M": 28.1519,
+      "stored_gamma": 1.1697,
+      "T": 3419.740037066217,
+      "M": 28.365544410158183,
+      "gamma_frozen": 1.2472703302140244,
+      "h_feed_J_kg": 1710910.832146864,
+      "gamma_equilibrium_cp_cv": 1.1734115729441534,
+      "Cp_equilibrium": 3863.3227758596886
+    },
+    {
+      "OF": 8.5,
+      "Pc": 5000000.0,
+      "stored_T": 3278.6744,
+      "stored_M": 28.5544,
+      "stored_gamma": 1.1683,
+      "T": 3371.635573657199,
+      "M": 28.71554214000796,
+      "gamma_frozen": 1.2470387300767478,
+      "h_feed_J_kg": 1717462.2905644807,
+      "gamma_equilibrium_cp_cv": 1.1716790977030354,
+      "Cp_equilibrium": 3690.024030086263
+    },
+    {
+      "OF": 10.0,
+      "Pc": 5000000.0,
+      "stored_T": 3197.6824,
+      "stored_M": 28.9582,
+      "stored_gamma": 1.1683,
+      "T": 3292.8866209120715,
+      "M": 29.07438631050909,
+      "gamma_frozen": 1.2476555945072503,
+      "h_feed_J_kg": 1725056.0264576275,
+      "gamma_equilibrium_cp_cv": 1.170649848339458,
+      "Cp_equilibrium": 3342.8049656614226
+    }
+  ],
+  "caveat": "Historical RPA inputs are missing. Inferred reconstruction is a sensitivity experiment, not recovered provenance or a new default.",
+  "inferred_reconstruction_original_database": {
+    "thermo_sha256": "d7c5ff8081d57abbb72ceeb57661ec1ad1243bd486dd167102c19686767ee5dd",
+    "T": 3285.405561540049,
+    "M": 27.085958791073335,
+    "gamma_frozen": 1.2475136979372745,
+    "h_feed_J_kg": 1267812.999854588,
+    "gamma_equilibrium_cp_cv": 1.1737133883609183,
+    "Cp_equilibrium": 3593.138939191339
+  }
+}

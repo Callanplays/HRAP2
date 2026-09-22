@@ -2,6 +2,8 @@
 
 Live chemistry predicts which gases form and their temperature at a specified chamber pressure, conserving the atoms and inlet enthalpy. The default HRAP simulation still uses its stored MATLAB-derived tables; those data and the standard engine were not changed.
 
+**Follow-up:** [Comparison with the original combustion tables](chemistry-table-comparison.md) strongly implicates input assumptions and the gamma convention; the exact historical configuration remains unconfirmed. Cantera agreement for the current assumptions does not establish reproduction of the historical RPA-generated tables. The live option remains a separate model, not a verified replacement for those tables.
+
 ## What broke, and what changed
 
 1. **An empty charge equation stopped every default solve.** The old code included electrons in its balance equations but selected only neutral products. The new solver explicitly models neutral gases and builds equations only for the elements in the feed. Requests for charged reactants or products are rejected instead of partially modeled.
