@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Dict, TypedDict
 
 import numpy as np
 
@@ -24,15 +24,22 @@ DEFAULT_PRODUCTS = (
     "H", "O", "N", "C", "HO2", "H2O2", "NH3", "CH4",
 )
 
-FUEL_RECIPES = {
-    "ABS": dict(formula="ABS", composition={"C": 8.0, "H": 8.0, "N": 1.0}, M=119.16, h0=147.0e6),
-    "HDPE": dict(formula="HDPE", composition={"C": 2.0, "H": 4.0}, M=28.05, h0=-52.0e6),
-    "HTPB": dict(formula="HTPB", composition={"C": 7.22, "H": 10.86, "O": 0.17}, M=100.0, h0=-12.0e6),
-    "Paraffin": dict(formula="PARAFFIN", composition={"C": 32.0, "H": 66.0}, M=450.0, h0=-930.0e6),
-    "HTPB_Paraffin": dict(formula="50P", composition={"C": 20.0, "H": 38.0, "O": 0.1}, M=280.0, h0=-400.0e6),
-    "Asphalt": dict(formula="ASPHALT", composition={"C": 10.0, "H": 12.0, "S": 0.2}, M=140.0, h0=50.0e6),
-    "Sorbitol": dict(formula="SORBITOL", composition={"C": 6.0, "H": 14.0, "O": 6.0}, M=182.17, h0=-1335.0e6),
-    "Metalized_Plastisol": dict(formula="MPLAST", composition={"C": 4.0, "H": 6.0, "O": 1.0, "AL": 1.0}, M=86.0, h0=-150.0e6),
+class FuelRecipe(TypedDict):
+    formula: str
+    composition: dict[str, float]
+    M: float
+    h0: float
+
+
+FUEL_RECIPES: dict[str, FuelRecipe] = {
+    "ABS": FuelRecipe(formula="ABS", composition={"C": 8.0, "H": 8.0, "N": 1.0}, M=119.16, h0=147.0e6),
+    "HDPE": FuelRecipe(formula="HDPE", composition={"C": 2.0, "H": 4.0}, M=28.05, h0=-52.0e6),
+    "HTPB": FuelRecipe(formula="HTPB", composition={"C": 7.22, "H": 10.86, "O": 0.17}, M=100.0, h0=-12.0e6),
+    "Paraffin": FuelRecipe(formula="PARAFFIN", composition={"C": 32.0, "H": 66.0}, M=450.0, h0=-930.0e6),
+    "HTPB_Paraffin": FuelRecipe(formula="50P", composition={"C": 20.0, "H": 38.0, "O": 0.1}, M=280.0, h0=-400.0e6),
+    "Asphalt": FuelRecipe(formula="ASPHALT", composition={"C": 10.0, "H": 12.0, "S": 0.2}, M=140.0, h0=50.0e6),
+    "Sorbitol": FuelRecipe(formula="SORBITOL", composition={"C": 6.0, "H": 14.0, "O": 6.0}, M=182.17, h0=-1335.0e6),
+    "Metalized_Plastisol": FuelRecipe(formula="MPLAST", composition={"C": 4.0, "H": 6.0, "O": 1.0, "AL": 1.0}, M=86.0, h0=-150.0e6),
 }
 
 
