@@ -20,6 +20,10 @@ Requires **Python 3.10+**.
 
 Double-click `run_hrap.bat` (or `Run HRAP.bat` in the parent folder). The first launch installs dependencies if needed.
 
+### macOS
+
+Double-click **`run_hrap.command`** in Finder. It uses the repository's `.venv` and installs missing dependencies on first launch. For a fresh setup, install Python 3.10+ or `uv` first. Launch errors remain visible in Terminal. The `.bat` launcher is Windows-only.
+
 ### From a terminal
 
 ```

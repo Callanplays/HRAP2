@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, QEvent, QObject, QSettings, QThread, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -242,14 +242,13 @@ class SimWorker(QObject):
     failed = Signal(str)
     progress = Signal(int, int)
 
-    def __init__(self, cfg: dict, sat_props=None):
+    def __init__(self, cfg: dict):
         super().__init__()
         self.cfg = cfg
-        self.sat_props = sat_props
 
     def run(self):
         try:
-            s, x = resolve(self.cfg, get_sat_props=self.sat_props)
+            s, x = resolve(self.cfg)
             x, o = run(s, x, on_progress=self.progress.emit)
             self.finished.emit(s, x, o)
         except Exception:
@@ -268,15 +267,25 @@ class MainWindow(QMainWindow):
         self._theme = "dark"
         self._thread = None
         self._worker = None
+        self._close_when_finished = False
+        self._result_cfg = None
         self._hover_index = None
         self._prefs = QSettings("HCAT", APP_NAME)
         self._last_dir = str(self._prefs.value("lastFileDir") or "")
         self._build()
         self._cfg_to_form(self.cfg)
         self._connect_derived()
+        for control_type, signal in (
+            (QDoubleSpinBox, "valueChanged"), (QSpinBox, "valueChanged"),
+            (QComboBox, "currentIndexChanged"), (QCheckBox, "toggled"),
+        ):
+            for control in self._form.findChildren(control_type):
+                getattr(control, signal).connect(self._invalidate_results)
+        self.name.textChanged.connect(self._invalidate_results)
+        self.mfg.textChanged.connect(self._invalidate_results)
 
     def _build(self):
-        file_menu = self.menuBar().addMenu("&File")
+        file_menu = self._file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction("New", self._new)
         file_menu.addAction("Open JSON…", self._open_json)
         file_menu.addAction("Import MATLAB .mat…", self._import_mat)
@@ -288,7 +297,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction("Quit", self.close)
 
-        ex_menu = self.menuBar().addMenu("&Examples")
+        ex_menu = self._examples_menu = self.menuBar().addMenu("&Examples")
         ex_menu.addAction("example_98mm (const O/F, ABS)", lambda: self._load_bundled("example_98mm"))
         ex_menu.addAction("Rattworks K240 (const O/F, HDPE)", lambda: self._load_bundled("Rattworks_K240"))
 
@@ -300,7 +309,8 @@ class MainWindow(QMainWindow):
         help_menu.addAction(f"About {APP_NAME}", self._about)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self._make_form())
+        self._form = self._make_form()
+        splitter.addWidget(self._form)
         splitter.addWidget(self._make_results())
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -632,7 +642,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.motor_panel)
         self.summary = QPlainTextEdit()
         self.summary.setReadOnly(True)
-        self.summary.setFont(QFont("Consolas", 10))
+        self.summary.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         layout.addWidget(self.summary, 2)
         return box
 
@@ -738,6 +748,7 @@ class MainWindow(QMainWindow):
 
     def _cfg_to_form(self, cfg: dict):
         self.name.setText(str(cfg.get("mtr_nm") or ""))
+        self.mfg.setText(str(cfg.get("mfg") or "HRAP"))
         self.tnk_V.set_display(cfg.get("tnk_V", 0), cfg.get("tnk_V_unit", "cm^3"))
         self.tnk_D.set_display(cfg.get("tnk_D", 0), cfg.get("tnk_D_unit", "in"))
         self.tnk_L.set_display(cfg.get("tnk_L", 0), cfg.get("tnk_L_unit", "in"))
@@ -1203,6 +1214,16 @@ class MainWindow(QMainWindow):
         self._clear_plot()
         self._refresh_viz()
 
+    def _invalidate_results(self):
+        if self._output is None:
+            return
+        self._output = self._settings = self._state = self._result_cfg = None
+        self._hover_index = None
+        self.summary.clear()
+        self._clear_plot()
+        self._refresh_viz()
+        self.statusBar().showMessage("Inputs changed — run again to update results.")
+
     def _on_propellant(self):
         ident = self.prop_combo.currentData()
         if not ident:
@@ -1218,31 +1239,18 @@ class MainWindow(QMainWindow):
         if p.opt_OF:
             self.const_OF.setValue(float(p.opt_OF))
 
-    def _sat_props(self):
-        if not self.adv_on.isChecked():
-            return None
-        choice = self.ox_fluid.currentText()
-        if choice.startswith("N2O_legacy"):
-            return None
-        try:
-            from hrap.advanced.fluid import coolprop_sat
-        except Exception as exc:
-            QMessageBox.warning(self, "Advanced fluid", f"CoolProp is not available:\n{exc}")
-            return None
-        fluid = "NitrousOxide" if "Nitrous" in choice else "Oxygen"
-        return coolprop_sat(fluid)
-
     def _run(self):
-        if self._thread is not None and self._thread.isRunning():
+        if self._thread is not None:
             return
         self.cfg = self._form_to_cfg()
+        self._running_cfg = self.cfg
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
         self._progress.show()
-        self.run_btn.setEnabled(False)
-        self.statusBar().showMessage("Running MATLAB-parity simulation…")
+        self._set_running(True)
+        self.statusBar().showMessage("Running simulation…")
         self._thread = QThread()
-        self._worker = SimWorker(self.cfg, self._sat_props())
+        self._worker = SimWorker(self.cfg)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self._on_progress)
@@ -1250,22 +1258,44 @@ class MainWindow(QMainWindow):
         self._worker.failed.connect(self._on_failed)
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
-        self._thread.finished.connect(lambda: self.run_btn.setEnabled(True))
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread_finished)
         self._thread.start()
+
+    def _set_running(self, running: bool):
+        self._form.setEnabled(not running)
+        self._file_menu.setEnabled(not running)
+        self._examples_menu.setEnabled(not running)
+
+    def _thread_finished(self):
+        self._thread.deleteLater()
+        self._thread = None
+        self._worker = None
+        self._set_running(False)
+        if self._close_when_finished:
+            self.close()
+
+    def closeEvent(self, event):
+        if self._thread is not None:
+            self._close_when_finished = True
+            self.statusBar().showMessage("Closing when the current simulation finishes…")
+            event.ignore()
+        else:
+            event.accept()
 
     def _on_progress(self, i: int, n: int):
         n = max(int(n), 1)
         self._progress.setRange(0, n)
         self._progress.setValue(min(int(i), n))
-        self.statusBar().showMessage(f"Running MATLAB-parity simulation… {100.0 * i / n:.0f}%")
+        self.statusBar().showMessage(f"Running simulation… {100.0 * i / n:.0f}%")
 
     def _stop_progress(self):
         self._progress.hide()
         self._progress.setValue(0)
-        self.run_btn.setEnabled(True)
 
     def _on_finished(self, s, x, o):
         self._settings, self._state, self._output = s, x, o
+        self._result_cfg = self._running_cfg
         self._hover_index = None
         info = summarize(s, x, o)
         self.summary.setPlainText(format_summary(info))
@@ -1377,15 +1407,14 @@ class MainWindow(QMainWindow):
         if self._output is None or self._settings is None:
             QMessageBox.information(self, "Export", "Run a simulation first.")
             return
-        cfg = self._form_to_cfg()
-        dry_m, dry_cg = self._empty_mass_si()
+        cfg = self._result_cfg
         if kind == "csv":
             path, _ = QFileDialog.getSaveFileName(self, "Export CSV", self._dialog_path("HRAP_output.csv"), "CSV (*.csv)")
             if path:
                 self._remember_file_dir(path)
                 export_csv(path, self._output, self._settings)
         elif kind == "rse":
-            stem = (self.name.text() or "motor").strip() or "motor"
+            stem = cfg["mtr_nm"].strip() or "motor"
             path, _ = QFileDialog.getSaveFileName(self, "Export RSE", self._dialog_path(f"{stem}.rse"), "RSE (*.rse)")
             if path:
                 self._remember_file_dir(path)
@@ -1396,8 +1425,6 @@ class MainWindow(QMainWindow):
                     OD=cfg["export_OD"],
                     L=cfg["export_L"],
                     mfg=cfg["mfg"],
-                    dry_mass=dry_m,
-                    dry_cg=dry_cg,
                 )
         else:
             path, _ = QFileDialog.getSaveFileName(self, "Export ENG", self._dialog_path("motor.eng"), "ENG (*.eng)")
@@ -1410,8 +1437,6 @@ class MainWindow(QMainWindow):
                     OD=cfg["export_OD"],
                     L=cfg["export_L"],
                     mfg=cfg["mfg"],
-                    dry_mass=dry_m,
-                    dry_cg=dry_cg,
                 )
 
     def _set_theme(self, name: str):

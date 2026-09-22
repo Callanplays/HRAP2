@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
-import pytest
 
 from hrap.engine.sim import run
 from hrap.io.config import bundled_motor, default_cfg, resolve, save_json
 from hrap.io.export import export_csv, export_eng, export_rse
 from hrap.io.propellant import list_propellants, load_propellant
-
-GOLDEN = Path(__file__).parent / "golden"
-
 
 def test_propellant_presets_load():
     items = list_propellants()
@@ -41,8 +35,7 @@ def test_example_98mm_const_of_runs(tmp_path):
     assert np.all(np.isfinite(o.F_thr))
     assert np.all(np.isfinite(o.P_tnk))
     assert np.all(np.isfinite(o.P_cmbr))
-    GOLDEN.mkdir(exist_ok=True)
-    export_csv(GOLDEN / "example_98mm_python.csv", o, s)
+    export_csv(tmp_path / "example_98mm_python.csv", o, s)
     export_rse(tmp_path / "m.rse", o, s)
     text = (tmp_path / "m.rse").read_text(encoding="utf-8")
     assert "cg=" in text
@@ -53,7 +46,7 @@ def test_example_98mm_const_of_runs(tmp_path):
     export_eng(tmp_path / "m.eng", o, s)
     eng = (tmp_path / "m.eng").read_text(encoding="utf-8")
     assert "cg0=" in eng
-    info_path = GOLDEN / "example_98mm_python.csv"
+    info_path = tmp_path / "example_98mm_python.csv"
     assert info_path.exists()
 
 
@@ -67,23 +60,6 @@ def test_shift_of_abs_runs():
     x, o = run(s, x)
     assert o.t.size > 20
     assert np.all(np.isfinite(o.F_thr))
-    GOLDEN.mkdir(exist_ok=True)
-    export_csv(GOLDEN / "example_98mm_shift_python.csv", o, s)
-
-
-def test_self_golden_repeatable():
-    pytest.importorskip("numpy")
-    path = GOLDEN / "example_98mm_python.csv"
-    if not path.exists():
-        pytest.skip("golden not generated yet")
-    cfg = bundled_motor("example_98mm")
-    s, x = resolve(cfg)
-    _x, o = run(s, x)
-    gold = np.genfromtxt(path, delimiter=",", names=True)
-    n = min(o.t.size, gold.size)
-    denom = np.maximum(np.abs(gold["F_thr"][:n]), 1e-8)
-    rel = np.max(np.abs(o.F_thr[:n] - gold["F_thr"][:n]) / denom)
-    assert rel < 1e-12
 
 
 def test_json_roundtrip(tmp_path):

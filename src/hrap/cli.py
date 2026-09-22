@@ -24,7 +24,7 @@ def compare_main(argv: list[str] | None = None) -> int:
     s, x = resolve(cfg)
     _x, o = run(s, x)
 
-    gold = np.genfromtxt(args.csv, delimiter=",", names=True)
+    gold = np.genfromtxt(args.csv, delimiter=",", names=True, ndmin=1)
     mapping = {
         "t": o.t,
         "F_thr": o.F_thr,
@@ -37,16 +37,22 @@ def compare_main(argv: list[str] | None = None) -> int:
         "m_o": o.m_o,
         "m_f": o.m_f,
     }
-    n = min(o.t.size, gold.shape[0] if gold.dtype.names is None else gold.size)
-    print(f"python n={o.t.size}  golden n={gold.size if gold.dtype.names else gold.shape[0]}  end={o.sim_end_cond}")
+    print(f"python n={o.t.size}  golden n={gold.size}  end={o.sim_end_cond}")
+    if gold.size == 0 or gold.size != o.t.size:
+        print("FAIL: traces must have the same nonzero number of samples")
+        return 1
+    if not gold.dtype.names or not {"t", "F_thr"}.issubset(gold.dtype.names):
+        print("FAIL: reference CSV must contain t and F_thr columns")
+        return 1
     max_rel = 0.0
     for name, arr in mapping.items():
-        if gold.dtype.names and name not in gold.dtype.names:
+        if name not in gold.dtype.names:
             continue
-        g = gold[name][:n] if gold.dtype.names else None
-        if g is None:
-            continue
-        a = arr[:n]
+        g = gold[name]
+        a = arr
+        if not np.all(np.isfinite(a)) or not np.all(np.isfinite(g)):
+            print(f"FAIL: {name} contains non-finite values")
+            return 1
         denom = np.maximum(np.abs(g), 1e-30)
         rel = np.max(np.abs(a - g) / denom)
         abserr = np.max(np.abs(a - g))
