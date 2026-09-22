@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
-from hrap.advanced.geometry import star_area_table, star_vertices
+from hrap.advanced.geometry import star_geometry_table, star_vertices
 from hrap.io.config import bundled_motor, resolve
 
 
@@ -47,10 +47,10 @@ def test_normal_offset_conserves_mass_and_clips_wall(overshoot):
 
 def test_geometry_resolution_and_normal_offset_are_not_scaled_star():
     tip, outer = .014, .022
-    web, areas = star_area_table(tip, outer, 6, .45)
-    finer_web, finer = star_area_table(tip, outer, 6, .45, samples=2049)
+    web, areas, _ = star_geometry_table(tip, outer, 6, .45)
+    finer_web, finer, _ = star_geometry_table(tip, outer, 6, .45, samples=2049)
     np.testing.assert_allclose(np.interp(finer_web, web, areas), finer, rtol=2e-5)
-    _, finer_arcs = star_area_table(tip, outer, 6, .45, quad_segs=128)
+    _, finer_arcs, _ = star_geometry_table(tip, outer, 6, .45, quad_segs=128)
     np.testing.assert_allclose(areas, finer_arcs, rtol=1e-4)
     port = Polygon(star_vertices(tip*.45, tip, 6))
     assert areas[0] == pytest.approx(port.area)

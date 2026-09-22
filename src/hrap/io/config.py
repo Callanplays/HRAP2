@@ -377,9 +377,10 @@ def resolve(cfg: dict[str, Any], get_sat_props=None) -> tuple[Settings, State]:
         F_thr=0.0,
         ox_props=ox,
     )
-    if adv.get("enabled") and adv.get("grain_shape") == "star":
+    if adv.get("enabled") and adv.get("grain_shape") in ("star", "twisted star"):
         from hrap.advanced.geometry import configure_star
-        configure_star(s, x, adv.get("star_tips", 6), float(adv.get("star_inner_ratio", 0.45)))
+        pitch = _len(adv, "star_twist_pitch") if adv.get("grain_shape") == "twisted star" else None
+        configure_star(s, x, adv.get("star_tips", 6), float(adv.get("star_inner_ratio", 0.45)), pitch)
     if adv.get("enabled") and adv.get("grain_shape") == "helical":
         from hrap.advanced.helical import configure_helical
         configure_helical(

@@ -532,12 +532,14 @@ class MainWindow(QMainWindow):
         self.ox_fluid = PlainComboBox()
         self.ox_fluid.addItems(["N2O_legacy", "NitrousOxide (CoolProp)", "Oxygen (CoolProp)"])
         self.grain_shape = PlainComboBox()
-        self.grain_shape.addItems(["cylindrical", "star", "helical"])
+        self.grain_shape.addItems(["cylindrical", "star", "twisted star", "helical"])
         self.star_tips = PlainSpinBox(); self.star_tips.setRange(3, 16); self.star_tips.setValue(6)
         self.star_inner_ratio = PlainDoubleSpinBox()
         self.star_inner_ratio.setDecimals(4)
         self.star_inner_ratio.setRange(0.001, 0.999)
         self.star_inner_ratio.setValue(0.45)
+        self.star_twist_pitch = UnitRow(LENGTH_ITEMS, "in", 5)
+        self.star_twist_pitch.spin.setValue(3.0)
         self.helix_offset = UnitRow(LENGTH_ITEMS, "in", 5)
         self.helix_offset.spin.setValue(0.125)
         self.helix_pitch = UnitRow(LENGTH_ITEMS, "in", 5)
@@ -552,6 +554,7 @@ class MainWindow(QMainWindow):
         af.addRow("Grain shape", self.grain_shape)
         af.addRow("Star tips", self.star_tips)
         af.addRow("Star valley / tip radius", self.star_inner_ratio)
+        af.addRow("Star twist pitch (length / full turn)", self.star_twist_pitch)
         star_note = QLabel(
             "Star: requires Shifting OF. Grain ID is the initial tip-to-tip diameter. "
             "The port grows by uniform normal offsets; ends are inhibited. "
@@ -560,6 +563,15 @@ class MainWindow(QMainWindow):
         )
         star_note.setWordWrap(True)
         af.addRow(star_note)
+        twist_note = QLabel(
+            "Twisted star: straight centerline; the star walls rotate along it. "
+            "Experimental area-averaged growth includes added geometric surface, "
+            "but does not predict swirling flow, heat-transfer enhancement or pressure loss. "
+            "Pitch stays fixed. Grain ID is tip-to-tip; traces/schematic use an equal-area circle. "
+            "Requires Shifting OF and stops at first outer-wall contact."
+        )
+        twist_note.setWordWrap(True)
+        af.addRow(twist_note)
         af.addRow("Helix center offset", self.helix_offset)
         af.addRow("Helix pitch (length / turn)", self.helix_pitch)
         af.addRow("Assumed regression multiplier", self.helix_multiplier)
@@ -574,14 +586,17 @@ class MainWindow(QMainWindow):
         af.addRow(helix_note)
         def show_shape_fields():
             shape = self.grain_shape.currentText()
-            for name, fields, note in [
-                ("star", (self.star_tips, self.star_inner_ratio), star_note),
-                ("helical", (self.helix_offset, self.helix_pitch, self.helix_multiplier), helix_note),
+            for names, fields in [
+                (("star", "twisted star"), (self.star_tips, self.star_inner_ratio)),
+                (("twisted star",), (self.star_twist_pitch,)),
+                (("helical",), (self.helix_offset, self.helix_pitch, self.helix_multiplier)),
             ]:
                 for field in fields:
-                    field.setVisible(shape == name)
-                    af.labelForField(field).setVisible(shape == name)
-                note.setVisible(shape == name)
+                    field.setVisible(shape in names)
+                    af.labelForField(field).setVisible(shape in names)
+            star_note.setVisible(shape == "star")
+            twist_note.setVisible(shape == "twisted star")
+            helix_note.setVisible(shape == "helical")
         self.grain_shape.currentTextChanged.connect(show_shape_fields)
         show_shape_fields()
         root.addWidget(adv)
@@ -706,6 +721,8 @@ class MainWindow(QMainWindow):
                 "grain_shape": self.grain_shape.currentText(),
                 "star_tips": self.star_tips.value(),
                 "star_inner_ratio": self.star_inner_ratio.value(),
+                "star_twist_pitch": self.star_twist_pitch.spin.value(),
+                "star_twist_pitch_unit": self.star_twist_pitch.unit.currentText(),
                 "helix_offset": self.helix_offset.spin.value(),
                 "helix_offset_unit": self.helix_offset.unit.currentText(),
                 "helix_pitch": self.helix_pitch.spin.value(),
@@ -797,6 +814,7 @@ class MainWindow(QMainWindow):
         if adv.get("star_tips"):
             self.star_tips.setValue(int(adv["star_tips"]))
         self.star_inner_ratio.setValue(float(adv.get("star_inner_ratio", 0.45)))
+        self.star_twist_pitch.set_display(adv.get("star_twist_pitch", 3.0), adv.get("star_twist_pitch_unit") or ("m" if "star_twist_pitch" in adv else "in"))
         self.helix_offset.set_display(adv.get("helix_offset", 0.125), adv.get("helix_offset_unit") or ("m" if "helix_offset" in adv else "in"))
         self.helix_pitch.set_display(adv.get("helix_pitch", 3.0), adv.get("helix_pitch_unit") or ("m" if "helix_pitch" in adv else "in"))
         self.helix_multiplier.setValue(float(adv.get("helix_regression_multiplier", 1.0)))
@@ -991,7 +1009,7 @@ class MainWindow(QMainWindow):
         grn_L = self._len_si(self.grn_L)
         grn_OD = self._len_si(self.grn_OD)
         grn_ID = self._len_si(self.grn_ID)
-        if self.adv_on.isChecked() and self.grain_shape.currentText() == "star":
+        if self.adv_on.isChecked() and self.grain_shape.currentText() in ("star", "twisted star"):
             tips = self.star_tips.value()
             area = tips * (grn_ID / 2)**2 * self.star_inner_ratio.value() * math.sin(math.pi / tips)
             grn_ID = 2 * math.sqrt(area / math.pi)

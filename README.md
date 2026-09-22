@@ -49,6 +49,8 @@ enables optional CoolProp oxidizers and other advanced extras. The standard sour
 
 The source UI also supports an [experimental helical grain](docs/helical-grain.md), using the standard SciPy dependency. Enable advanced options, choose `helical`, and use `Shifting OF`. Offset, pitch, and an explicitly assumed regression multiplier let you study a fixed helical shape; swirl enhancement is not predicted. The model conserves fuel/port volume and stops at first outer-wall contact. See the linked assumptions before interpreting its results. The motor schematic still shows an equivalent straight port.
 
+For a **straight centerline with twisting walls**, choose `twisted star` instead. Its pitch controls rotation of the star section along the axis. It uses the [star model's geometric surface-area extension](docs/star-grain.md#straight-axis-twisted-star), preserving initial volume and fuel mass. It does not simulate the swirling flow or predict a calibrated swirl enhancement.
+
 ## Tests
 
 ```
