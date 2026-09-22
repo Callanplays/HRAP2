@@ -12,7 +12,6 @@ python -m pytest
 python -m hrap
 ```
 
-The Mac launcher `run_hrap.command` can create `.venv` and install application dependencies. To add the test tools to that environment, use `uv pip install --python .venv/bin/python -e ".[dev]"`, or `.venv/bin/python -m pip install -e ".[dev]"` if that environment has pip. Run its tests with `.venv/bin/python -m pytest`.
 
 On macOS, prefix unattended builds, installs, and full test runs with `caffeinate -i`.
 

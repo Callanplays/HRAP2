@@ -7,8 +7,7 @@ The desktop window is named **HRAP (HCAT Fork) 1.1.0**. Its standard engine tran
 ## Run the app
 
 - **Windows:** download the versioned Windows zip from [Releases](https://github.com/sidbanch/HRAP2/releases), unzip it, and run `HRAP.exe`. For a source checkout, double-click `run_hrap.bat`.
-- **macOS:** double-click **`run_hrap.command`** in Finder. It uses this checkout's `.venv` and installs missing dependencies. For first-time setup, install Python 3.10+ or `uv`.
-- **Other source installations:** use Python 3.10+ in a virtual environment, install this project with `python -m pip install -e .`, then run `python -m hrap`.
+- **macOS/Linux source installations:** use Python 3.10+ in a virtual environment, install this project with `python -m pip install -e .`, then run `python -m hrap`.
 
 Enter the motor settings on the left, press **Run**, and inspect the plots and summary. Save/load motor configurations as JSON, import MATLAB `.mat` motor files, or export results as CSV, RSE (OpenRocket/RockSim), and ENG.
 
