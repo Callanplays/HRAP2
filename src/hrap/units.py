@@ -141,3 +141,43 @@ _in = 0.0254
 _ft = 0.3048
 _atm = 101325.0
 _psi = 101325.0 / 14.696
+
+
+@dataclass(frozen=True)
+class DisplayUnits:
+    """Presentation choices only; engine and exported numeric data stay in SI."""
+
+    pressure: str = "psi"
+    length: str = "in"
+    mass: str = "kg"
+    force: str = "N"
+    volume: str = "L"
+    temperature: str = "K"
+    speed: str = "m/s"
+
+    def unit(self, quantity: str) -> str:
+        if quantity == "mass_flow":
+            return f"{self.mass}/s"
+        if quantity == "impulse":
+            return f"{self.force}·s"
+        if quantity == "area":
+            return f"{self.length}²"
+        if quantity == "ratio":
+            return ""
+        return getattr(self, quantity)
+
+    def value(self, si: float, quantity: str) -> float:
+        if quantity == "ratio":
+            return si
+        if quantity == "mass_flow":
+            return from_si(si, self.mass, "mass")
+        if quantity == "impulse":
+            return from_si(si, self.force, "force")
+        if quantity == "area":
+            return si / LENGTH[self.length] ** 2
+        if quantity == "speed":
+            return from_si(si, self.speed.removesuffix("/s"), "length")
+        return from_si(si, self.unit(quantity), quantity)
+
+    def text(self, si: float, quantity: str, precision: int = 4) -> str:
+        return f"{self.value(si, quantity):.{precision}g} {self.unit(quantity)}".strip()

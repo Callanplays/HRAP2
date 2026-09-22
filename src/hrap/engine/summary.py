@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from hrap.units import DisplayUnits
 from hrap.engine.impulse import impulse_class
 from hrap.engine.types import Output, Settings, State
 
@@ -51,22 +52,23 @@ def summarize(s: Settings, x: State, o: Output) -> dict:
     }
 
 
-def format_summary(info: dict) -> str:
+def format_summary(info: dict, units: DisplayUnits | None = None) -> str:
+    u = units or DisplayUnits(pressure="bar", length="cm", volume="cc")
     return (
         f"Motor Name: {info['name']}\n"
         f"    Propellant: {info['propellant']}\n"
-        f"    Oxidizer Tank Volume: {info['tnk_V_cc']:.0f} cc\n"
+        f"    Oxidizer Tank Volume: {u.text(info['tnk_V_cc'] * 1e-6, 'volume', 6)}\n"
         f"    Burn Time: {info['burn_time']:.3f} s\n"
-        f"    Peak Thrust: {info['peak_thrust']:.1f} N\n"
-        f"    Average Thrust: {info['avg_thrust']:.1f} N\n"
-        f"    Total Impulse: {info['total_impulse']:.2f} N-s\n"
-        f"    Peak Chamber Pressure: {info['peak_pressure_bar']:.3f} bar\n"
-        f"    Average Chamber Pressure: {info['avg_pressure_bar']:.3f} bar\n"
-        f"    Port Diameter at Burnout: {info['port_cm']:.3f} cm\n"
-        f"    Fuel Consumed: {info['fuel_consumed']:.3f} kg\n"
-        f"    Oxidizer Consumed: {info['ox_consumed']:.3f} kg\n"
+        f"    Peak Thrust: {u.text(info['peak_thrust'], 'force', 6)}\n"
+        f"    Average Thrust: {u.text(info['avg_thrust'], 'force', 6)}\n"
+        f"    Total Impulse: {u.text(info['total_impulse'], 'impulse', 7)}\n"
+        f"    Peak Chamber Pressure: {u.text(info['peak_pressure_bar'] * 1e5, 'pressure', 6)} (absolute)\n"
+        f"    Average Chamber Pressure: {u.text(info['avg_pressure_bar'] * 1e5, 'pressure', 6)} (absolute)\n"
+        f"    Port Diameter at Burnout: {u.text(info['port_cm'] * .01, 'length', 6)}\n"
+        f"    Fuel Consumed: {u.text(info['fuel_consumed'], 'mass', 6)}\n"
+        f"    Oxidizer Consumed: {u.text(info['ox_consumed'], 'mass', 6)}\n"
         f"    Average OF Ratio: {info['avg_OF']:.3f}\n"
-        f"    Characteristic Velocity: {info['cstar']:.1f} m/s\n"
+        f"    Characteristic Velocity: {u.text(info['cstar'], 'speed', 6)}\n"
         f"    Specific Impulse: {info['isp']:.1f} s\n"
         f"    Motor Classification: {info['impulse_percent']:3.0f}% {info['impulse_class']}{info['avg_thrust']:.0f}\n"
         f"    Simulation Termination Condition: {info['end_cond']}"

@@ -34,6 +34,10 @@ python -m hrap
 
 The window title is **HRAP (HCAT Fork) 1.1.0**. Edit the motor on the left, press **Run**, then inspect traces, the scaled motor schematic, and the performance summary on the right.
 
+Results are grouped into tabs such as **Thrust**, **Pressure**, and **Mass flow**, each with its own vertical scale. Select quantities in the list to show their tabs. Time-axis zoom is shared across tabs; hover over a graph to inspect the motor at that time.
+
+Use **Settings → Units** to choose pressure, length, mass, force, volume, temperature, and speed units for plots, the motor diagram, and the results summary. Choices are remembered between launches. Pressure defaults to psi and is absolute (including atmospheric pressure); injector ΔP is a pressure difference. Input fields retain their own labeled unit selectors. Display preferences do not change simulation calculations or export units.
+
 ## Batch / CLI
 
 ```

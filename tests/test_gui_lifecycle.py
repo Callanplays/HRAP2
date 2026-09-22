@@ -3,19 +3,29 @@ import time
 import pytest
 
 
+@pytest.fixture(scope="module")
+def app():
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+
+        application = QApplication.instance() or QApplication([])
+        yield application
+
+
 @pytest.fixture
-def window(monkeypatch):
-    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtWidgets import QApplication
+def window(app):
     from hrap.gui.main import MainWindow
 
-    app = QApplication.instance() or QApplication([])
     win = MainWindow()
     win.tmax.setValue(.02)
     win.show()
     yield win
     wait_for_run(win)
     win.close()
+    from PySide6.QtCore import QCoreApplication, QEvent
+    win.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app.processEvents()
 
 
@@ -80,3 +90,66 @@ def test_loading_restores_manufacturer(window):
     window.mfg.setText("Previous manufacturer")
     window._cfg_to_form(cfg)
     assert window._form_to_cfg()["mfg"] == "Saved manufacturer"
+
+
+def test_display_units_update_results_without_changing_simulation(window, tmp_path):
+    import numpy as np
+    from PySide6.QtCore import QPointF, QSettings, Qt
+    from PySide6.QtWidgets import QApplication
+    from hrap.units import DisplayUnits
+
+    window._prefs = QSettings(str(tmp_path / "units.ini"), QSettings.Format.IniFormat)
+    window._run()
+    wait_for_run(window)
+    output = window._output
+    pressure = output.P_tnk.copy()
+    config = window._form_to_cfg()
+    for units, pressure_scale in (
+        (DisplayUnits(pressure="bar", length="mm"), 1e-5),
+        (DisplayUnits(pressure="psi", length="in", mass="lbm", force="lbf", temperature="F"), 14.696 / 101325),
+    ):
+        window._set_display_units(units)
+        QApplication.processEvents()
+        assert window._output is output
+        assert window._form_to_cfg() == config
+        np.testing.assert_array_equal(output.P_tnk, pressure)
+        plots = window._plots
+        assert list(plots) == ["force", "pressure", "mass_flow"]
+        np.testing.assert_allclose(plots["pressure"].listDataItems()[0].yData, pressure * pressure_scale)
+        np.testing.assert_allclose(plots["mass_flow"].listDataItems()[0].yData,
+                                   output.mdot_o * units.value(1, "mass_flow"))
+        assert plots["pressure"].getAxis("left").labelUnits == units.pressure
+        assert units.pressure in window.summary.toPlainText()
+        assert units.force in window.summary.toPlainText()
+        view = window._motor_view(1)
+        assert view.overlay_tank[1] == units.text(pressure[1], "pressure")
+        assert units.unit("mass_flow") in view.inj_lines[4]
+        assert view.display_units.length == units.length
+        window.plot.setCurrentWidget(window._plot_widgets["pressure"])
+        QApplication.processEvents()
+        point = plots["pressure"].vb.mapViewToScene(QPointF(output.t[1], pressure[1] * pressure_scale))
+        window._mouse_moved("pressure", point)
+        assert units.pressure in window.plot_readout.text()
+        assert window._hover_index is not None
+        assert window._prefs.value("displayUnits/pressure") == units.pressure
+    plots["force"].setXRange(.002, .008, padding=0)
+    QApplication.processEvents()
+    np.testing.assert_allclose(plots["pressure"].vb.viewRange()[0], [.002, .008], atol=1e-6)
+    window._set_display_units(DisplayUnits(pressure="bar"))
+    QApplication.processEvents()
+    assert window.plot.currentWidget() is window._plot_widgets["pressure"]
+    np.testing.assert_allclose(window._plots["pressure"].vb.viewRange()[0], [.002, .008], atol=1e-6)
+    window.trace_list.item(3).setCheckState(Qt.CheckState.Checked)
+    np.testing.assert_allclose(window._plots["ratio"].vb.viewRange()[0], [.002, .008], atol=1e-6)
+    for i in range(window.trace_list.count()):
+        window.trace_list.item(i).setCheckState(Qt.CheckState.Unchecked)
+    assert not window._plots
+    window.trace_list.item(1).setCheckState(Qt.CheckState.Checked)
+    assert list(window._plots) == ["pressure"]
+
+
+def test_small_metric_ruler_ticks_are_distinct():
+    from hrap.gui.viz import _tick_label
+
+    assert _tick_label(.05, .05) == "0.05"
+    assert _tick_label(.10, .05) == "0.10"
