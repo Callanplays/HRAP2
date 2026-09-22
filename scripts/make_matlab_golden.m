@@ -12,8 +12,8 @@ function make_matlab_golden(debugFirst)
   end
   here = fileparts(mfilename('fullpath'));
   root = fileparts(here);
-  addpath(fullfile(root, 'HRAP - Matlab', 'core'));
-  addpath(fullfile(root, 'HRAP - Matlab', 'util'));
+  addpath(fullfile(root, 'reference', 'matlab', 'core'));
+  addpath(fullfile(root, 'reference', 'matlab', 'util'));
 
   outdir = fullfile(root, 'tests', 'golden');
   if ~exist(outdir, 'dir')
@@ -42,9 +42,7 @@ function write_nox(outdir)
 end
 
 function write_interp(root, outdir)
-  pfile = first_existing({ ...
-    fullfile(root, 'data', 'propellants', 'mat', 'ABS.mat'), ...
-    fullfile(root, 'HRAP - Matlab', 'propellant_configs', 'ABS.mat')});
+  pfile = fullfile(root, 'reference', 'matlab', 'propellant_configs', 'ABS.mat');
   S = load(pfile);
   p = S.s;
   OF = [p.prop_OF(1), mean(p.prop_OF), p.prop_OF(end), 0, 99];
@@ -63,12 +61,8 @@ function run_one(root, outdir, motor_name, prop_name, shifting, debugFirst)
   if nargin < 6
     debugFirst = false;
   end
-  cfg_path = first_existing({ ...
-    fullfile(root, 'data', 'motors', 'mat', [motor_name '.mat']), ...
-    fullfile(root, 'HRAP - Matlab', 'motor_configs', [motor_name '.mat'])});
-  pfile = first_existing({ ...
-    fullfile(root, 'data', 'propellants', 'mat', [prop_name '.mat']), ...
-    fullfile(root, 'HRAP - Matlab', 'propellant_configs', [prop_name '.mat'])});
+  cfg_path = fullfile(root, 'reference', 'matlab', 'motor_configs', [motor_name '.mat']);
+  pfile = fullfile(root, 'reference', 'matlab', 'propellant_configs', [prop_name '.mat']);
   C = load(cfg_path);
   cfg = C.cfg;
   P = load(pfile);
@@ -241,17 +235,6 @@ function write_csv(path, header, M)
     fprintf(fid, '\n');
   end
   fclose(fid);
-end
-
-function p = first_existing(cands)
-  p = '';
-  for i = 1:numel(cands)
-    if exist(cands{i}, 'file')
-      p = cands{i};
-      return
-    end
-  end
-  error('missing asset, tried: %s', strjoin(cands, ', '));
 end
 
 function u = len_u(name)

@@ -115,10 +115,7 @@ def make_basic_reactant(formula: str, composition: dict, M: float, T0: float, h0
 
 
 def _thermo_path() -> Path:
-    p = Path(__file__).resolve().parents[1] / "resources" / "thermo.dat"
-    if p.exists():
-        return p
-    return Path(__file__).resolve().parents[3] / "HRAP - Python" / "hrap" / "thermo.dat"
+    return Path(__file__).resolve().parents[1] / "resources" / "thermo.dat"
 
 
 def _eval_curve(coeffs: np.ndarray, T: float, kind: str) -> float:

@@ -1,0 +1,594 @@
+# Purpose: Provide HP (inputs are reactant enthalpy and fixed pressure) chemical equilibrium
+#   via Gibb's free energy minimization for use in chamber calculations
+# The assumptions and capabilities of this module are tailored towards
+#   hobbyist/student rocket engines used in amateur rocketry.
+# Note: RPA, CEA, PROPEP, and HRAP all use this same algorithm
+#   PROPEP is the most notable fully open source alternative.
+#   However, HRAP considers a special case, most notably we neglect
+#   condensed species in the output due to irrelevance to our application.
+# Why make this?
+#   Because pypropep is abandoned and broken for modern Python,
+#   pycea and RocketCEA have limited version compatability while being
+#   tailored towards usage as an application rather than as an API,
+#   and Cantera's equilibrium solver has been broken for over a decade.
+#   That is, this was developed to provide existing capabilities but
+#   with a smoother user experience for HRAP.
+# Author: Thomas A. Scott
+
+# UNIT TESTS ARE WIP!
+
+# Terminlogy explanations:
+# Mixture - reaction products
+
+# Unit explanations:
+# s - specific entropy
+# S - molar entropy
+# h - specific enthalpy
+# H - molar enthalpy
+# g - Gibbs energy per kg of mixture
+# mu_j - chemical potential per kmol of species j
+
+# Extension explanations:
+# _0 - fixed/initial value
+# ^0 - standard state value
+# _D - dimensionless value
+
+# Working equations:
+# s = sum n_j*S_j
+# h = sum n_j*H_j
+# g = sum n_j*mu_j
+
+import numpy as np
+import jax
+import jax.numpy as jnp
+from functools import partial
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Dict
+from hrap.units import _atm
+
+Rhat = 8314 # J/(K*kmol), universal gas constant
+
+
+
+@dataclass
+class NASA9(object):
+    T_min: float # K
+    T_max: float # K
+    DeltaHForm: float # Formation enthalpy at substance-specific reference temperature, only valid enthalpy value for condensed species
+    coeffs: np.array # 9 coefficients
+    
+    # Although the property tables are nearly duplicated further below for JAX, this is kept for convenience during initialization
+    # Nondimensionalized specific heat, Cp/Rhat
+    def get_Cp_D(self, T):
+        return self.coeffs[0]/(T*T) + self.coeffs[1]/T   + self.coeffs[2]      + \
+               self.coeffs[3]*T     + self.coeffs[4]*T*T + self.coeffs[5]*T**3 + \
+               self.coeffs[6]*T**4
+    
+    # Nondimensionalized specific enthalpy, H/(Rhat*T)
+    def get_H_D(self, T):
+         return -self.coeffs[0]/(T*T)    + self.coeffs[1]/T*np.log(T) + self.coeffs[2]          + \
+                 self.coeffs[3]*T/2.0    + self.coeffs[4]*T*T/3.0     + self.coeffs[5]*T**3/4.0 + \
+                 self.coeffs[6]*T**4/5.0 + self.coeffs[7]/T
+
+    # Nondimensionalized specific entropy, S/Rhat
+    def get_S_D(self, T):
+        return -self.coeffs[0]/(2.0*T*T) - self.coeffs[1]/T       + self.coeffs[2]*np.log(T) + \
+                self.coeffs[3]*T         + self.coeffs[4]*T*T/2.0 + self.coeffs[5]*T**3/3.0  + \
+                self.coeffs[6]*T**4/4.0  + self.coeffs[8]
+
+@dataclass
+# High-level thermodynamic information used during initialization
+class ThermoSubstance(object):
+    formula: str # Format should be similar to "(HCOOH)2-", all capitals
+    comment: str # Such as data origin
+    condensed: bool # Either condensed or gaseous
+    is_product: bool # Always a reactant, not always a product
+    composition: Dict[str, float] # two-letter code: relative moles i.e. chemical composition
+    M: float # kg/kmol, molar mass
+    providers: list[NASA9]
+    T_min: float # Range where the substance is allowed to be used (may be a single point, may contain error margin past where it is defined)
+    T_max: float
+
+    def get_R(self): # J/(K*kg), specific gas constant
+        return Rhat / self.M
+    
+    def get_prov(self, T):
+        i = 0
+        for j in range(1, len(self.providers)):
+            if T > self.providers[j].T_min: i = j
+        
+        return self.providers[i]
+
+    def get_Cp_D(self, T):
+        return self.get_prov(T).get_Cp_D(T)
+    
+    def get_H_D(self, T):
+        return self.get_prov(T).get_H_D(T)
+        
+    def get_S_D(self, T):
+        return self.get_prov(T).get_S_D(T)
+
+def make_basic_reactant(formula: str, composition: dict, M: float, T0: float, h0: float, condensed = True) -> ThermoSubstance:
+    """
+    kg/kmol
+    K
+    J/kmol, note that chem table and other software is often J/mol
+    """
+    return ThermoSubstance(formula, '', condensed, False, { k.upper(): v for k, v in composition.items() }, M, [NASA9(T0, T0, h0, [0.0]*2+[h0/Rhat/T0]+[0.0]*5)], T0, T0)
+
+def ReducedEQ0k(b_k0, a_kj_n_J, x, xm):
+    # a_kj_n_J is each a_kj*n_j, j in 1...N_gas
+    result = -b_k0
+    result += jnp.sum((a_kj_n_J[:,None] * xm.gas_a) * x.pi_i[None,:]) # Sum across all elements in the substance, a_kj*a_ij*n_j*pi_i, arrays broadcast along each gas
+    result += jnp.sum(a_kj_n_J*x.Deltaln_n) # a_kj*n_j*Deltaln_n
+    result += jnp.sum(a_kj_n_J*x.gas_H_D*x.Deltaln_T) # a_kj*n_j*H_j/(R*T)*Deltaln_T
+    result -= jnp.sum(a_kj_n_J*(x.gas_H_D-x.gas_S_D+jnp.log(x.n_j/x.n)+jnp.log(x.P/1e5))) # a_kj*n_j*mu_j/(R*T)
+    result += jnp.sum(a_kj_n_J) # b_k contribution, a_kj*n_j
+    return result
+
+def ReducedEQ2(x, xm):
+    result = -x.n - x.n*x.Deltaln_n
+    result += jnp.sum((xm.gas_a * x.n_j[:,None]) * x.pi_i[None,:]) # sum across i, a_ij*n_j*pi_i
+    result += jnp.sum(x.n_j * x.Deltaln_n) # (n_j-n)*Deltaln_n
+    result += jnp.sum(x.n_j*x.gas_H_D*x.Deltaln_T) # n_j*H_jstd/(R*T)*Deltaln_T
+    result += jnp.sum(x.n_j) # n_j
+    result -= jnp.sum(x.n_j*(x.gas_H_D-x.gas_S_D+jnp.log(x.n_j/x.n)+jnp.log(x.P/1.0E5))) # n_j*mu_j/(R*T)
+    return result
+
+def ReducedEQ3(x, xm):
+    Cp_D, H_D_j, S_D_j = x.gas_Cp_D, x.gas_H_D, x.gas_S_D
+    result = -x.h_0/(Rhat*x.T) # h_0/R*T
+    result += jnp.sum((xm.gas_a * (x.n_j*H_D_j)[:,None]) * x.pi_i[None,:]) # sum across i, a_ij*n_j*H_jstd/(R*T)*pi_i
+    result += jnp.sum(x.n_j * H_D_j * x.Deltaln_n) # n_j*H_jstd/(R*T)*Deltaln_n
+    result += jnp.sum(x.n_j * H_D_j) # h/(R*T) contribution, n_j*H_jstd/(R*T)
+    result += jnp.sum(x.n_j*(Cp_D+H_D_j*H_D_j)*x.Deltaln_T) # (n_j*Cp_jstd/R+n_j*H_jstd^2/(R^2*T^2))*Deltaln_T
+    result -= jnp.sum(x.n_j*H_D_j*(H_D_j-S_D_j+jnp.log(x.n_j/x.n)+jnp.log(x.P/1.0E5))) # n_j*H_jstd*mu_j/(R^2*T^2)
+    return result
+
+# Jit compatible versions of NASA9 curve fits
+# N_curve must be known statically to use JAX conditionals for piecewise fit, higher numbers result in wasted computation
+N_curve_max = 3
+# Nondimensionalized specific heat, Cp/Rhat
+def _get_Cp_D(coeffs, T):
+    return coeffs[0]/(T*T) + coeffs[1]/T   + coeffs[2]      + \
+           coeffs[3]*T     + coeffs[4]*T*T + coeffs[5]*T**3 + \
+           coeffs[6]*T**4
+
+# Nondimensionalized specific enthalpy, H/(Rhat*T)
+def _get_H_D(coeffs, T):
+     return -coeffs[0]/(T*T)    + coeffs[1]/T*jnp.log(T) + coeffs[2]          + \
+             coeffs[3]*T/2.0    + coeffs[4]*T*T/3.0     + coeffs[5]*T**3/4.0 + \
+             coeffs[6]*T**4/5.0 + coeffs[7]/T
+
+# Nondimensionalized specific entropy, S/Rhat
+def _get_S_D(coeffs, T):
+    return -coeffs[0]/(2.0*T*T) - coeffs[1]/T       + coeffs[2]*jnp.log(T) + \
+            coeffs[3]*T         + coeffs[4]*T*T/2.0 + coeffs[5]*T**3/3.0  + \
+            coeffs[6]*T**4/4.0  + coeffs[8]
+
+get_Cp_D, get_H_D, get_S_D = [
+    jax.vmap(lambda T_bounds, coeffs, T, _eval_curve=_eval_curve:
+        # TODO: jax.lax.switch instead?
+        jnp.select(T < T_bounds[:,1], [_eval_curve(coeffs[i,:], T) for i in range(N_curve_max)], _eval_curve(coeffs[-1,:], T)),
+        (0, 0, None)
+    ) for _eval_curve in [_get_Cp_D, _get_H_D, _get_S_D]
+]
+
+@partial(jax.tree_util.register_dataclass,
+    data_fields=['N_gas', 'max_iters', 'gas_T_bounds', 'gas_coeffs', 'gas_a'],
+    meta_fields=['N_elem']) # TODO: only static because of jac updates, could avoid with index map...
+@dataclass
+class InternalMeta(object):
+    N_elem: int
+    N_gas: int
+    max_iters: int
+
+    gas_T_bounds: jnp.ndarray # (N_gas, N_max_curves, 2)
+    gas_coeffs: jnp.ndarray # (N_gas, N_max_curves, 9)
+    gas_a: jnp.ndarray # (N_gas, N_elem) amount of the element in each unit gas
+
+@partial(jax.tree_util.register_dataclass,
+    data_fields=['P', 'h_0', 'n', 'T', 'Deltaln_n', 'Deltaln_T', 'b_i0', 'b_i0_max', 'pi_i', 'n_j', 'Deltan_j', 'gas_Cp_D', 'gas_H_D', 'gas_S_D'],
+    meta_fields=[])
+@dataclass
+class InternalState(object):
+    P: float # Pa, constant pressure
+    h_0: float # input enthalpy
+    n: float # kmol/kg, inverse molar mass of mixture
+    T: float # K, current temperature
+    Deltaln_n: float
+    Deltaln_T: float
+
+    # cond_subs: np.ndarray
+    b_i0: jnp.ndarray # (N_elem), used to keep the elemental mass density balance identical to the inputs
+    b_i0_max: float
+    pi_i: jnp.ndarray # (N_elem)
+    n_j: jnp.ndarray # (N_gas), kmol of species j per kg of mixture
+    Deltan_j: jnp.ndarray # (N_gas)
+
+    # TODO: sub should only check formula as we use .index here - not anymore
+    gas_Cp_D: np.ndarray # Current substance properties
+    gas_H_D: np.ndarray
+    gas_S_D: np.ndarray
+
+def solver_cond(loop_val):
+    i, is_converged, x, xm = loop_val
+    return (i <= xm.max_iters) & (~is_converged)
+def solver_body(loop_val):
+    i, is_converged, x, xm = loop_val
+    gas_Cp_D, gas_H_D, gas_S_D = [get_my_D(xm.gas_T_bounds, xm.gas_coeffs, x.T) for get_my_D in [get_Cp_D, get_H_D, get_S_D]]
+    x = InternalState(x.P, x.h_0, x.n, x.T, x.Deltaln_n, x.Deltaln_T, x.b_i0, x.b_i0_max, x.pi_i, x.n_j, x.Deltan_j, gas_Cp_D, gas_H_D, gas_S_D)
+    
+    N_dof = xm.N_elem + 2
+    rhs = jnp.zeros(N_dof)
+    rhs = rhs.at[:xm.N_elem].set(jax.vmap(ReducedEQ0k, (0, 1, None, None))(x.b_i0, xm.gas_a * x.n_j[:,None], x, xm))
+    rhs = rhs.at[-2].set(ReducedEQ2(x, xm))
+    rhs = rhs.at[-1].set(ReducedEQ3(x, xm))
+    
+    jac = jnp.zeros((N_dof, N_dof))
+    # Per-element equation partial derivatives of pi_i, sum across k rows and i columns, a_kj*a_ij*n_j
+    jac = jac.at[:xm.N_elem, :xm.N_elem].set(xm.gas_a.T @ (xm.gas_a * x.n_j[:,None]))
+    # Molar balance equation partial derivatives of pi_i
+    jac = jac.at[:xm.N_elem,-2].set(jnp.sum(xm.gas_a * x.n_j[:,None], axis=0)) # a_ij*n_j
+    # Enthalpy conservation equation partial derivatives of pi_i
+    jac = jac.at[:xm.N_elem,-1].set(jnp.sum(xm.gas_a * (x.n_j * x.gas_H_D)[:,None], axis=0)) # a_ij*n_j*H_jstd/(R*T)
+    jac = jac.at[-2,:xm.N_elem].set(jac[:xm.N_elem,-2])
+    jac = jac.at[-1,:xm.N_elem].set(jac[:xm.N_elem,-1])
+
+    # Molar balance equation partial derivative of Deltaln_n
+    jac = jac.at[-2, -2].set(jnp.sum(x.n_j) - x.n)
+    # Molar balance equation partial derivative of Deltaln_T
+    jac = jac.at[-1, -2].set(jnp.sum(x.n_j*x.gas_H_D)) # n_j*H_jstd/(R*T)
+    
+    # Enthalpy conservation equation partial derivative of Deltaln_n
+    jac = jac.at[-2, -1].set(jnp.sum(x.n_j*x.gas_H_D)) # n_j*H_jstd/(R*T)
+    # Enthalpy conservation equation partial derivative of Deltaln_T
+    jac = jac.at[-1, -1].set(jnp.sum(x.n_j*(x.gas_Cp_D+x.gas_H_D**2))) # (n_j*Cp_jstd/R+n_j*H_jstd^2/(R^2*T^2))
+    
+    # TODO: CG should work since symmetric, not sure if fast since small matrix https://docs.jax.dev/en/latest/_autosummary/jax.scipy.sparse.linalg.cg.html
+    upd = jnp.linalg.solve(jac, rhs)
+    pi_i = x.pi_i - upd[:xm.N_elem]
+    Deltaln_n = x.Deltaln_n - upd[-2]
+    Deltaln_T = x.Deltaln_T - upd[-1]
+    
+    # Empirical lambda formulas suggested by NASA
+    Deltan_j = Deltaln_n + x.gas_H_D*Deltaln_T - \
+        (x.gas_H_D-x.gas_S_D+jnp.log(x.n_j/x.n)+jnp.log(x.P/1e5))
+    Deltan_j += jnp.sum(xm.gas_a * pi_i[None,:], axis=1) # sum across i, a_ij*pi_i
+    
+    lambda1 = 5.0*jnp.maximum(jnp.abs(Deltaln_T), jnp.abs(Deltaln_n))
+    lambda1 = jnp.maximum(lambda1, jnp.max(jnp.abs( Deltan_j)))
+    
+    ln_nj_n = jnp.log(x.n_j/x.n)
+    v = jnp.abs((-ln_nj_n-9.2103404) / (Deltan_j-Deltaln_n))
+    # lambda2 is minimum out of gasses that satisfy the conditions
+    lambda2 = jnp.min(jnp.select([(ln_nj_n <= -18.420681) & (Deltan_j >= 0.0)], [v], float('inf')))
+    
+    # Limit corrections to prevent diverging solutions due to large jumps
+    lambda1 = 2.0 / lambda1
+    lam = jnp.minimum(1.0, jnp.minimum(lambda1, lambda2))
+    n_j = x.n_j * jnp.exp(lam * Deltan_j)
+    n = x.n * jnp.exp(lam * Deltaln_n)
+    T = x.T * jnp.exp(lam * Deltaln_T)
+    
+    x = InternalState(x.P, x.h_0, n, T, Deltaln_n, Deltaln_T, x.b_i0, x.b_i0_max, pi_i, n_j, Deltan_j, x.gas_Cp_D, x.gas_H_D, x.gas_S_D)
+    
+    # Test for convergence
+    convergedTemp = jnp.abs(x.Deltaln_T) <= 1e-4
+    sumN_j = jnp.sum(x.n_j)
+    convergeGas = (jnp.sum(x.n_j*jnp.abs(x.Deltan_j)) / sumN_j) <= 5e-6
+    convergeTotal = (x.n * jnp.abs(x.Deltaln_n) / sumN_j) <= 5e-6
+    sum_aij_nj = jnp.sum(xm.gas_a * x.n_j[:,None], axis=0) # n_j[j]*gas_a[j,:]
+    massBalanceConvergence = jnp.all(jnp.abs(x.b_i0 - sum_aij_nj) < x.b_i0_max*1e-6)
+    is_converged = convergedTemp & convergeGas & convergeTotal & massBalanceConvergence
+    # TODO: Also do TRACE != 0 convergence test for pi_i
+    # jax.debug.print('Converged? {} {}, T {}, gas {}, total {}, bal {}', is_converged, i, convergedTemp, convergeGas, convergeTotal, massBalanceConvergence)
+    # jax.debug.print('Converged? {}, T {}, gas {}, total {}, bal {} vs {} is {}', i, jnp.abs(x.Deltaln_T), (jnp.sum(x.n_j*jnp.abs(x.Deltan_j)) / sumN_j), (x.n * jnp.abs(x.Deltaln_n) / sumN_j), jnp.abs(x.b_i0 - sum_aij_nj), x.b_i0_max*1e-6, jnp.abs(x.b_i0 - sum_aij_nj) - x.b_i0_max*1e-6)
+    # jax.debug.print('bi0, {}, sum current {}', x.b_i0, sum_aij_nj)
+
+    return i+1, is_converged, x, xm
+def solver_loop(x, xm):
+    i, _, x, _ = jax.lax.while_loop(solver_cond, solver_body, (1, False, x, xm))
+    return i, x
+solver_loop = jax.jit(solver_loop, donate_argnames=['x'])
+
+@jax.jit
+def postprocessing(x, xm):
+    N_dof = xm.N_elem + 1
+    dP, dT = jnp.zeros(N_dof), jnp.zeros(N_dof)
+    M = jnp.zeros((N_dof, N_dof)) # T and P deriv coeffs
+    
+    # Compute gas properties (don't use internal state as its gas properties are 1 iter behind termination)
+    H_D, Cp_D = [get_my_D(xm.gas_T_bounds, xm.gas_coeffs, x.T) for get_my_D in [get_H_D, get_Cp_D]]
+
+    # dpi_i/dlnT then dn_j/dln_T then dlnn/dlnT
+    def _deriv_entry(j, M, dT, dP, gas_a, n_j, H_D):
+        # Per-element equation
+        M = M.at[:-1, :-1].add(n_j[j] * jnp.outer(gas_a[j,:], gas_a[j,:])) # a_jk*a_ji*n_j
+        M = M.at[-1,:-1].add(n_j[j]*gas_a[j,:]) # a_jk*n_j
+        dT = dT.at[:-1].add(-H_D[j]*n_j[j]*gas_a[j,:]) # a_jk*n_j*H_jstd/(R*T)
+        dP = dP.at[:-1].add(n_j[j]*gas_a[j,:]) # a_jk*n_j
+        # Singular equation
+        M = M.at[:-1,-1].add(n_j[j] * gas_a[j,:]) # a_ji*n_j
+        dT = dT.at[-1].add(-n_j[j] * H_D[j]) # n_j*H_jstd/(R*T)
+        dP = dP.at[-1].add(n_j[j]) # n_j
+        return M, dT, dP
+    
+    def deriv_entry(j, v):
+        M, dT, dP, *s = v
+        
+        # Only write the entry for substances with a non-negligible concentration
+        M, dT, dP = jax.lax.cond(x.n_j[j] > 1E-7, lambda *v: _deriv_entry(*v), lambda j, M, dT, dP, *s: (M, dT, dP), j, *v)
+        
+        return M, dT, dP, *s
+    M, dT, dP, *_ = jax.lax.fori_loop(0, xm.N_gas, deriv_entry, (M, dT, dP, xm.gas_a, x.n_j, H_D))
+    
+    # Set nearly zero rows to identity zero
+    def clean_row(k, v):
+        return jax.lax.cond(
+            jnp.allclose(M[k,:], 0.0),
+            lambda j, M, dT, dP: (M.at[k,:].set(0.0).at[k,k].set(1.0), dT.at[k].set(0.0), dP.at[k].set(0.0)),
+            lambda k, *v: v,
+            k, *v
+        )
+    M, dT, dP = jax.lax.fori_loop(0, N_dof, clean_row, (M, dT, dP))
+
+    dT, dP = jnp.unstack(jnp.linalg.solve(M, jnp.stack([dT, dP], axis=-1)), axis=-1)
+
+    # TODO: output frozen Cp, Cv and raw derivatives too?
+    Cp = jnp.sum(x.n_j * Cp_D) # Frozen contribution
+    Cp += jnp.sum(xm.gas_a * (x.n_j*H_D)[:,None] * dT[None,:xm.N_elem])
+    Cp += jnp.sum(x.n_j*(dT[-1]*H_D+H_D**2))
+    Cp *= Rhat
+
+    dlnV_dlnT = dT[-1] + 1.0 # dlnn/dlnT+1
+    dlnV_dlnP = dP[-1] - 1.0 # dlnn/dlnP-1
+    return Cp, dlnV_dlnT, dlnV_dlnP
+
+@dataclass
+class ChemSolver:
+    substances: Dict[str, ThermoSubstance]
+    
+    # Takes in table such as thermo.ipa from RPA or thermo.dat from cpropep. Must be text, not binary.
+    # Must end with END REACTANTS and contain END PRODUCTS
+    # Curve fit data should be dimensionless (Cp/R, S/R, and H/R) with S and H supplied at 1bar
+    # Curve fit for Cp can not have more than 7 elements and exponents (-2, -1, 0, 1, 2, 3, 4) are always assumped, with data ignored
+    def load_propep(self, chem_path):
+        # Reads from entries such as:
+        """
+        name (18 char), comment (all remaining on line)
+        H2O               Hf:Cox,1989. Woolley,1987. TRC(10/88) tuv25.                  
+        temperature range entry count (2 char, kelvin), source identifier (8x char), elements (5x [2x char element, 6x char quantity]]), phase (2char, 0 for gas 1 for condensed), molecular weight (13 char, kg/kmol), heat of formation (15 char, J/mol, or enthalpy if entry count = 0 [single temperature, condensed])
+         2 g 8/89 H   2.00O   1.00    0.00    0.00    0.00 0   18.0152800    -241826.000
+        temperature interval (2x 11 char), ncoeffs (1 char), exponents (8x 5 char), H^O(298.15)-H^O(0) (17 char, ?)
+            200.000   1000.0007 -2.0 -1.0  0.0  1.0  2.0  3.0  4.0  0.0         9904.092
+        coefficients (across 2 lines, up to 8x 16 char, may be blank to imply skip for formatting)
+        -3.947960830D+04 5.755731020D+02 9.317826530D-01 7.222712860D-03-7.342557370D-06
+         4.955043490D-09-1.336933246D-12                -3.303974310D+04 1.724205775D+01
+        (repeated for other temperature intervals)
+           1000.000   6000.0007 -2.0 -1.0  0.0  1.0  2.0  3.0  4.0  0.0         9904.092
+         1.034972096D+06-2.412698562D+03 4.646110780D+00 2.291998307D-03-6.836830480D-07
+         9.426468930D-11-4.822380530D-15                -1.384286509D+04-7.978148510D+00
+        """
+        with open(chem_path, 'r') as chem_file:
+            substances = { }
+            strip = ' '
+            mode, in_reactants = 0, False
+            def readline(chem_file):
+                line = chem_file.readline().rstrip('\n')
+                while len(line.strip(strip)) == 0 or line[0] == '!': # Skip comments and blank lines
+                    line = chem_file.readline().rstrip('\n')
+                return line
+            line = readline(chem_file)
+            while line:
+                if line.startswith('thermo'):
+                    chem_file.readline() # Skip line containing extraneous range data
+                elif line.startswith('END PRODUCTS'):
+                    in_reactants = True
+                elif line.startswith('END REACTANTS'):
+                    break # End of file
+                else: # Chem entry
+                    i = 0
+                    
+                    formula = line[i:i+18].strip(strip); i += 18
+                    comment = ''
+                    if len(line) > 18:
+                        comment = line[i:].strip(strip)
+                    
+                    line = readline(chem_file); i = 0
+                    fitPieces = int(line[i:i+2].strip(strip)); i += 2
+                    i += 8 # Ignore source identifier
+                    composition = { }
+                    for j in range(5):
+                        symbol = line[i:i+2].strip(strip).upper(); i += 2
+                        quantity = float(line[i:i+6].strip(strip)); i += 6
+                        if len(symbol) == 0:
+                            continue
+                        composition[symbol] = quantity
+                    phase = int(line[i:i+2].strip(strip)); i += 2
+                    condensed = phase != 0
+                    M = float(line[i:i+13].strip(strip)); i += 13
+                    # Comes as kJ/kmol so convert to J/kmol
+                    DeltaHForm = 1e3 * float(line[i:i+15].strip(strip))
+
+                    line = readline(chem_file); i = 0
+                    providers = []
+                    if fitPieces == 0: # If single temp (only appropriate for condensed reactants)
+                        if not in_reactants:
+                            print(f'ERROR: Zero piece data is not permitted for product, {formula}, as entropy is needed to solve!')
+                        
+                        T = float(line[i:i+11].strip(strip))
+                        # Valid at a single temperature but is specified as constant Cp
+                        providers.append(NASA9(T, T, DeltaHForm, np.array([0.0]*2+[DeltaHForm/Rhat/T]+[0.0]*5)))
+                    else:
+                        for j in range(fitPieces):
+                            i = 0
+                            T_min = float(line[i:i+11].strip(strip)); i += 11
+                            T_max = float(line[i:i+11].strip(strip)); i += 11
+                            ncoffs = int(line[i:i+1].strip(strip)); i += 1
+                            if ncoffs > 8:
+                                print(f'Fatal error: Thermochemical substance {formula} cannot have more than 8 coefficients (not counting the 9th entropy constant)!')
+                                return
+                            # TODO: warning if <8?
+                            i += 8*5 # Ignore exponents (only specified for C_p and have to make consistent assumptions for others)
+                            dho = float(line[i:i+17].strip(strip))
+
+                            coeffs, m = np.zeros(9), 0
+                            line = readline(chem_file); i = 0
+                            for k in range(5):
+                                coeff = line[i:i+16].strip(strip); i += 16
+                                if len(coeff) == 0: continue
+                                coeffs[m] = float(coeff.replace('D', 'E')); m += 1
+                            
+                            line = readline(chem_file); i = 0
+                            for k in range(2):
+                                coeff = line[i:i+16].strip(strip); i += 16
+                                if len(coeff) == 0: continue
+                                coeffs[m] = float(coeff.replace('D', 'E')); m += 1
+                            i += 16 # center is always ignored
+                            # Last two are for dimensionless molar enthalpy and entropy, respectively
+                            for k in range(2):
+                                coeff = line[i:i+16].strip(strip); i += 16
+                                if len(coeff) == 0: continue
+                                coeffs[7+k] = float(coeff.replace('D', 'E'))
+                            providers.append(NASA9(T_min, T_max, DeltaHForm, coeffs))
+                            # formula: str # Format should be similar to "(HCOOH)2-", all capitals
+                            if j != fitPieces-1: line = readline(chem_file)
+                    T_min, T_max = np.min([prov.T_min for prov in providers]), np.max([prov.T_max for prov in providers])
+                    substances[formula] = ThermoSubstance(formula, comment, condensed, not in_reactants, composition, M, providers, T_min, T_max)
+                
+                line = readline(chem_file)
+        return substances
+    
+    def __init__(self, chem_infos):
+        self.substances = { }
+        if not (isinstance(chem_infos, list) or isinstance(chem_infos, tuple)):
+            chem_infos = [chem_infos]
+        for chem_info in chem_infos:
+            if isinstance(chem_info, str) or isinstance(chem_info, Path):
+                new_substances = self.load_propep(chem_info)
+                for k, v in new_substances.items():
+                    if k in self.substances:
+                        print('Warning chemical "{k}" was defined several times, only first occurance used'.format(k=k))
+                    else:
+                        self.substances[k] = v
+            elif isinstance(chem_info, ThermoSubstance):
+                if chem_info.formula in self.substances:
+                    print('Warning chemical "{k}" was defined several times, only first occurance used'.format(k=chem_info.formula))
+                else:
+                    self.substances[chem_info.formula] = chem_info
+            else:
+                print('Error: invalid chem info type', type(chem_info))
+    
+    @dataclass
+    class Result:
+        T: float # K
+        # Important: these are equilibrium Cp, Cv, gamma; NOT FOZEN
+        #   i.e. they account for changing chemical composiRtion w.r.t. pressure and density, respectively
+        Cp: float
+        Cv: float
+        gamma: float # Specific heat ratio
+        gamma_s: float # Isentropic exponent, (d ln(P) / d ln(rho))_s, used in place of specific heat ratio for speed of sound
+        M: float # kg/kmol, molar mass
+        R: float
+        valid: bool # No errors and has any inputs
+        iters: int
+        composition: dict # Composition by (component formula, molar fraction)
+        
+        def __init__(self, valid):
+            self.valid = valid
+    
+    def solve(self, Pc, supply, max_iters=200, internal_state=None, reinit=True):
+        """
+            Pc combustion pressure in Pascals
+            supply: dictionary of inputs, keys are formula strings, values are mass fractions for for condensed species and (mass fraction, temperature in Kelvin, pressure in Pascals) for gaseous species
+        """
+        # Basic input checks
+        if len(supply) == 0 or Pc <= 0.0:
+            return Result(False), None
+        
+        # Electrons always included so that ions are possible to form
+        present_elements = ['E']
+        for formula, inputs in supply.items():
+            for elem, amount in self.substances[formula].composition.items():
+                if not elem in present_elements:
+                    present_elements.append(elem)
+        present_elements = sorted(present_elements) # Allows re-using gas table across different inputs given that elements are the same
+
+        if internal_state != None: # Check that provided internal_state is usable
+            x, xm, old_present_elements = internal_state
+            if present_elements != old_present_elements:
+                print('Warning: provided internal state is not usable due to differing elemental composition, rebuilding...')
+                internal_state = None
+        if internal_state == None:
+            x, xm = InternalState(*([None]*14)), InternalMeta(*([None]*6)) # Init with None as we will populate below
+            xm.N_elem = len(present_elements)
+            
+            full_gasses, xm.gas_T_bounds, xm.gas_coeffs = [], [], []
+            for sub in self.substances.values():
+                if sub.is_product and not sub.condensed:
+                    # TODO: temp cutoff too like SSTS?
+                    if all([elem in present_elements for elem in sub.composition]):
+                        N_curves = len(sub.providers)
+                        if N_curves > N_curve_max:
+                            print('Error:', sub.formula, 'has too many curves! max is', N_curve_max)
+
+                        xm.gas_T_bounds.append(jnp.zeros((N_curve_max, 2)).at[:N_curves,:].set([[prov.T_min, prov.T_max] for prov in sub.providers]))
+                        xm.gas_coeffs  .append(jnp.zeros((N_curve_max, 9)).at[:N_curves,:].set([prov.coeffs              for prov in sub.providers]))
+                        full_gasses.append(sub)
+            xm.N_gas = len(full_gasses)
+
+            xm.gas_a = np.zeros((xm.N_gas, xm.N_elem))
+            for i, gas in enumerate(full_gasses):
+                for elem, amount in gas.composition.items():
+                    j = present_elements.index(elem)
+                    xm.gas_a[i, j] = amount
+            xm.gas_a, xm.gas_T_bounds, xm.gas_coeffs = jnp.array(xm.gas_a), jnp.array(xm.gas_T_bounds), jnp.array(xm.gas_coeffs)
+            
+            reinit = True
+        xm.max_iters = max_iters
+
+        if reinit:
+            x.T = 3000 # K, current temperature
+            x.n = 0.1 # total kmol/kg
+            x.n_j = jnp.ones(xm.N_gas) * 0.1 / xm.N_gas
+            x.pi_i = jnp.zeros(xm.N_elem)
+            x.Deltaln_n = 0.0
+            x.Deltaln_T = 0.0
+            x.Deltan_j = jnp.zeros(xm.N_gas)
+        
+        # Begin from supply
+        x.P = Pc
+        x.h_0 = 0.0
+        x.b_i0 = np.zeros(xm.N_elem)
+        for formula, inputs in supply.items():
+            sub = self.substances[formula]
+            m_frac, T, P = inputs, sub.T_min, 1*_atm if sub.condensed else inputs
+            n_j = m_frac/sub.M
+            x.h_0 += n_j * sub.get_H_D(T) * Rhat * T
+            for elem, amount in sub.composition.items(): # Loop across elements
+                x.b_i0[present_elements.index(elem)] += amount * n_j
+        x.b_i0_max = np.max(x.b_i0)
+        x.b_i0 = jnp.array(x.b_i0)
+        x.gas_Cp_D, x.gas_H_D, x.gas_S_D = [jnp.zeros(xm.N_gas) for i in range(3)]
+        
+        # Solve for the equilibrium state
+        i, x = solver_loop(x, xm)
+        # if i == max_iters + 1: i = max_iters # If terminated due to max_iters, will be 1 too high
+
+        result = self.Result(True)
+        result.iters = i - 1 # Always too high as condition is after increment
+        result.T = x.T
+        result.M = 1/x.n
+        result.R = Rhat / result.M
+        # result.composition = { full_gasses[j].formula: x.n_j[j]*result.M for j in range(xm.N_gas) } # TODO: Can't do unless put full gasses in the internal state tuple
+        # print(f'result (took {i} iters): T={result.T}, M={result.M}')
+        
+        # Compute gas properties that require derivatives, such as specific heats
+        result.Cp, dlnV_dlnT, dlnV_dlnP = postprocessing(x, xm)
+        result.Cv      = result.Cp + result.R*dlnV_dlnT**2/dlnV_dlnP
+        result.gamma   = result.Cp / result.Cv
+        result.gamma_s = -result.gamma / dlnV_dlnP
+        
+        return result, (x, xm, present_elements)

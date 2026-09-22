@@ -2,7 +2,7 @@ import numpy as np
 import scipy.io
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[1] / "data" / "propellants" / "mat"
+root = Path(__file__).resolve().parents[1] / "reference" / "matlab" / "propellant_configs"
 for p in sorted(root.glob("*.mat")):
     d = scipy.io.loadmat(p, squeeze_me=True, struct_as_record=False)
     s = d["s"]

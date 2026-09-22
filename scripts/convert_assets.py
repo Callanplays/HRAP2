@@ -8,8 +8,8 @@ import numpy as np
 import scipy.io
 
 ROOT = Path(__file__).resolve().parents[1]
-MAT_PROP = ROOT / "data" / "propellants" / "mat"
-MAT_MTR = ROOT / "data" / "motors" / "mat"
+MAT_PROP = ROOT / "reference" / "matlab" / "propellant_configs"
+MAT_MTR = ROOT / "reference" / "matlab" / "motor_configs"
 OUT_PROP = ROOT / "src" / "hrap" / "resources" / "propellants"
 OUT_MTR = ROOT / "src" / "hrap" / "resources" / "motors"
 
@@ -22,11 +22,12 @@ def _arr(x) -> list:
 
 
 def convert_propellants() -> None:
-    OUT_PROP.mkdir(parents=True, exist_ok=True)
-    for old in OUT_PROP.glob("*.json"):
-        old.unlink()
+    paths = sorted(MAT_PROP.glob("*.mat"))
+    if not paths:
+        raise FileNotFoundError(f"No reference propellant tables found in {MAT_PROP}")
+    converted = {}
     index = []
-    for path in sorted(MAT_PROP.glob("*.mat")):
+    for path in paths:
         s = scipy.io.loadmat(path, squeeze_me=True, struct_as_record=False)["s"]
         ident = path.stem
         name = str(s.prop_nm)
@@ -42,11 +43,18 @@ def convert_propellants() -> None:
             "M": np.asarray(s.prop_M, dtype=float).tolist(),
             "T": np.asarray(s.prop_T, dtype=float).tolist(),
         }
-        out = OUT_PROP / f"{ident}.json"
-        out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        converted[f"{ident}.json"] = json.dumps(payload, indent=2)
         index.append({"id": ident, "name": name})
+    converted["index.json"] = json.dumps(index, indent=2)
+    # Parse every source before replacing the shipped tables.
+    OUT_PROP.mkdir(parents=True, exist_ok=True)
+    for name, content in converted.items():
+        out = OUT_PROP / name
+        out.write_text(content, encoding="utf-8")
         print(f"wrote {out}")
-    (OUT_PROP / "index.json").write_text(json.dumps(index, indent=2), encoding="utf-8")
+    for old in OUT_PROP.glob("*.json"):
+        if old.name not in converted:
+            old.unlink()
 
 
 def _jsonify(val):
