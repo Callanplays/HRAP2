@@ -79,6 +79,7 @@ exe = EXE(
     exclude_binaries=True,
     name="HRAP",
     debug=False,
+    icon=str(SRC / "hrap" / "resources" / "icon.ico"),
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
