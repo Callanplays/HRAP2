@@ -6,6 +6,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pyqtgraph as pg
@@ -86,7 +87,7 @@ def _t_sat(P: float) -> float | None:
     if not math.isfinite(P) or P <= 1.0 or P >= 7.2e6:
         return None
     try:
-        return float(brentq(lambda T: vapor_pressure(T) - P, 183.15, TC - 0.05, xtol=1e-4))
+        return cast(float, brentq(lambda T: vapor_pressure(T) - P, 183.15, TC - 0.05, xtol=1e-4))
     except Exception:
         return None
 
@@ -96,7 +97,7 @@ class _NoWheel:
 
     def wheelEvent(self, event):
         event.ignore()
-        parent = self.parentWidget()
+        parent = cast(QWidget, self).parentWidget()
         while parent is not None:
             if isinstance(parent, QScrollArea):
                 QApplication.sendEvent(parent.viewport(), event)
@@ -202,7 +203,7 @@ class UnitRow(QWidget):
 
 
 def _remember_unit(combo: QComboBox, unit: str | None = None) -> None:
-    combo._hrap_unit = combo.currentText() if unit is None else unit
+    combo.setProperty("hrap_unit", combo.currentText() if unit is None else unit)
 
 
 def _set_unit_text(combo: QComboBox, unit: str) -> None:
@@ -218,7 +219,7 @@ def _wire_unit_combo(spin: QDoubleSpinBox, combo: QComboBox, group: str | None =
     _remember_unit(combo)
 
     def _on_unit(new_unit: str):
-        old = getattr(combo, "_hrap_unit", new_unit)
+        old = combo.property("hrap_unit") or new_unit
         _remember_unit(combo, new_unit)
         if not old or old == new_unit:
             return
@@ -623,7 +624,7 @@ class MainWindow(QMainWindow):
         self.plot.showGrid(x=True, y=True, alpha=0.25)
         self.plot.addLegend()
         self._install_hover_overlay()
-        self.plot.scene().sigMouseMoved.connect(self._mouse_moved)
+        cast(pg.GraphicsScene, self.plot.scene()).sigMouseMoved.connect(self._mouse_moved)
         self.plot.installEventFilter(self)
         self.curves = {}
         self.trace_list = QListWidget()
@@ -1176,7 +1177,7 @@ class MainWindow(QMainWindow):
     def _mouse_moved(self, pos):
         if self._output is None:
             return
-        vb = self.plot.getPlotItem().vb
+        vb = cast(pg.ViewBox, cast(pg.PlotItem, self.plot.getPlotItem()).vb)
         if not vb.sceneBoundingRect().contains(pos):
             self._reset_viz_to_start()
             return
@@ -1268,7 +1269,7 @@ class MainWindow(QMainWindow):
         self._examples_menu.setEnabled(not running)
 
     def _thread_finished(self):
-        self._thread.deleteLater()
+        cast(QThread, self._thread).deleteLater()
         self._thread = None
         self._worker = None
         self._set_running(False)
@@ -1320,7 +1321,7 @@ class MainWindow(QMainWindow):
         self.hover_line = pg.InfiniteLine(angle=90, movable=False, pen=self._hover_line_pen())
         self.hover_line.setVisible(False)
         self.hover_line.setZValue(100)
-        self.plot.addItem(self.hover_line, ignoreBounds=True)
+        cast(pg.PlotItem, self.plot.getPlotItem()).addItem(self.hover_line, ignoreBounds=True)
 
     def _clear_plot(self):
         self.plot.clear()
@@ -1407,7 +1408,7 @@ class MainWindow(QMainWindow):
         if self._output is None or self._settings is None:
             QMessageBox.information(self, "Export", "Run a simulation first.")
             return
-        cfg = self._result_cfg
+        cfg = cast(dict, self._result_cfg)
         if kind == "csv":
             path, _ = QFileDialog.getSaveFileName(self, "Export CSV", self._dialog_path("HRAP_output.csv"), "CSV (*.csv)")
             if path:
@@ -1441,7 +1442,7 @@ class MainWindow(QMainWindow):
 
     def _set_theme(self, name: str):
         self._theme = name
-        apply_theme(QApplication.instance(), name)
+        apply_theme(cast(QApplication, QApplication.instance()), name)
         bg = "#1a1d23" if name == "dark" else "#ffffff"
         fg = "#e6e8ee" if name == "dark" else "#1b1d21"
         self.plot.setBackground(bg)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from typing import cast
 
 import numpy as np
 
@@ -102,7 +103,7 @@ def tank(s: Settings, o: Output, x: State, t: float) -> State:
         from scipy.optimize import brentq
 
         try:
-            x.T_tnk = float(brentq(vp, 183.15, 309.56, xtol=2.2e-16, maxiter=200))
+            x.T_tnk = cast(float, brentq(vp, 183.15, 309.56, xtol=2.2e-16, maxiter=200))
         except ValueError:
             x.T_tnk = matlab_fzero(vp, x.T_tnk)
         x.dP = x.ox_props.Pv - x.P_tnk

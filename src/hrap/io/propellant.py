@@ -5,6 +5,7 @@ import json
 from functools import lru_cache
 from importlib import resources
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -13,7 +14,7 @@ from hrap.engine.types import Propellant
 _PKG = "hrap.resources.propellants"
 
 
-def _read_json(name: str) -> dict:
+def _read_json(name: str) -> Any:
     try:
         ref = resources.files(_PKG).joinpath(name)
         return json.loads(ref.read_text(encoding="utf-8"))

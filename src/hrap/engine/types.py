@@ -91,13 +91,13 @@ class State:
     m_g: float
     dP: float
     F_thr: float
+    ox_props: OxProps
     k: float = 1.4
     M: float = 29.0
     T: float = 300.0
     R: float = 287.0
     rho: float = 1.225
     cstar: float = 1.0
-    ox_props: Optional[OxProps] = None
     dm_g: float = 0.0
     m_t: float = 0.0
     cg: float = 0.0

@@ -1,7 +1,7 @@
 """MATLAB-compatible fzero (scalar start, Brent after bracketing)."""
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, cast
 
 from scipy.optimize import brentq
 
@@ -70,4 +70,4 @@ def matlab_fzero(func: Callable[[float], float], x0: float, xtol: float = 2.2e-1
         return a
     if fb == 0.0:
         return b
-    return float(brentq(lambda t: _call(func, t), a, b, xtol=xtol, maxiter=200))
+    return cast(float, brentq(lambda t: _call(func, t), a, b, xtol=xtol, maxiter=200))

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Dict, TypedDict
 
 import numpy as np
 
@@ -24,15 +24,22 @@ DEFAULT_PRODUCTS = (
     "H", "O", "N", "C", "HO2", "H2O2", "NH3", "CH4",
 )
 
-FUEL_RECIPES = {
-    "ABS": dict(formula="ABS", composition={"C": 8.0, "H": 8.0, "N": 1.0}, M=119.16, h0=147.0e6),
-    "HDPE": dict(formula="HDPE", composition={"C": 2.0, "H": 4.0}, M=28.05, h0=-52.0e6),
-    "HTPB": dict(formula="HTPB", composition={"C": 7.22, "H": 10.86, "O": 0.17}, M=100.0, h0=-12.0e6),
-    "Paraffin": dict(formula="PARAFFIN", composition={"C": 32.0, "H": 66.0}, M=450.0, h0=-930.0e6),
-    "HTPB_Paraffin": dict(formula="50P", composition={"C": 20.0, "H": 38.0, "O": 0.1}, M=280.0, h0=-400.0e6),
-    "Asphalt": dict(formula="ASPHALT", composition={"C": 10.0, "H": 12.0, "S": 0.2}, M=140.0, h0=50.0e6),
-    "Sorbitol": dict(formula="SORBITOL", composition={"C": 6.0, "H": 14.0, "O": 6.0}, M=182.17, h0=-1335.0e6),
-    "Metalized_Plastisol": dict(formula="MPLAST", composition={"C": 4.0, "H": 6.0, "O": 1.0, "AL": 1.0}, M=86.0, h0=-150.0e6),
+class FuelRecipe(TypedDict):
+    formula: str
+    composition: dict[str, float]
+    M: float
+    h0: float
+
+
+FUEL_RECIPES: dict[str, FuelRecipe] = {
+    "ABS": FuelRecipe(formula="ABS", composition={"C": 8.0, "H": 8.0, "N": 1.0}, M=119.16, h0=147.0e6),
+    "HDPE": FuelRecipe(formula="HDPE", composition={"C": 2.0, "H": 4.0}, M=28.05, h0=-52.0e6),
+    "HTPB": FuelRecipe(formula="HTPB", composition={"C": 7.22, "H": 10.86, "O": 0.17}, M=100.0, h0=-12.0e6),
+    "Paraffin": FuelRecipe(formula="PARAFFIN", composition={"C": 32.0, "H": 66.0}, M=450.0, h0=-930.0e6),
+    "HTPB_Paraffin": FuelRecipe(formula="50P", composition={"C": 20.0, "H": 38.0, "O": 0.1}, M=280.0, h0=-400.0e6),
+    "Asphalt": FuelRecipe(formula="ASPHALT", composition={"C": 10.0, "H": 12.0, "S": 0.2}, M=140.0, h0=50.0e6),
+    "Sorbitol": FuelRecipe(formula="SORBITOL", composition={"C": 6.0, "H": 14.0, "O": 6.0}, M=182.17, h0=-1335.0e6),
+    "Metalized_Plastisol": FuelRecipe(formula="MPLAST", composition={"C": 4.0, "H": 6.0, "O": 1.0, "AL": 1.0}, M=86.0, h0=-150.0e6),
 }
 
 
@@ -453,13 +460,11 @@ def live_propellant_tables(base: str | Propellant, ox_formula: str = "N2O") -> P
     else:
         prop = base
         ident = prop.name
-    recipe = None
-    for key, rec in FUEL_RECIPES.items():
-        if key.lower() in ident.lower() or rec["formula"].lower() == ident.lower():
-            recipe = rec
-            break
+    normalized = ident.strip().casefold().replace(" ", "_")
+    recipe = next((rec for key, rec in FUEL_RECIPES.items()
+                   if normalized in (key.casefold(), rec["formula"].casefold())), None)
     if recipe is None:
-        recipe = FUEL_RECIPES["ABS"]
+        raise ValueError(f"No live chemistry recipe for {ident!r}.")
     fuel = make_basic_reactant(recipe["formula"], recipe["composition"], recipe["M"], 298.15, recipe["h0"])
     solver = ChemSolver([_thermo_path(), fuel])
     OF = np.asarray(prop.OF, dtype=float).ravel()
@@ -481,18 +486,17 @@ def live_propellant_tables(base: str | Propellant, ox_formula: str = "N2O") -> P
             m_f = 1.0 / (1.0 + max(of, 1e-6))
             m_o = 1.0 - m_f
             supply = {ox_formula: m_o, fuel.formula: m_f}
+            context = f"{ident}, O/F={of:g}, chamber pressure={pc:g} Pa"
             try:
                 res = solver.solve(float(pc), supply)
-            except Exception:
-                res = ChemSolver.Result(valid=False)
-            if res.valid and np.isfinite(res.T):
-                k[i, j] = float(np.clip(res.gamma, 1.05, 1.8))
-                M[i, j] = float(np.clip(res.M, 8.0, 50.0))
-                T[i, j] = float(np.clip(res.T, 500.0, 5500.0))
-            else:
-                k[i, j] = 1.25
-                M[i, j] = 24.0
-                T[i, j] = 2500.0
+            except Exception as exc:
+                raise ValueError(f"Live chemistry failed for {context}: {exc}") from exc
+            if (not res.valid or not np.isfinite([res.T, res.gamma, res.M]).all()
+                    or res.T <= 0 or res.M <= 0 or res.gamma <= 1):
+                raise ValueError(f"Live chemistry did not produce a valid result for {context}.")
+            k[i, j] = float(np.clip(res.gamma, 1.05, 1.8))
+            M[i, j] = float(np.clip(res.M, 8.0, 50.0))
+            T[i, j] = float(np.clip(res.T, 500.0, 5500.0))
     return Propellant(
         name=f"{prop.name} (live chem)",
         opt_OF=prop.opt_OF,

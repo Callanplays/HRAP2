@@ -23,17 +23,48 @@ def test_star_grain_does_not_crash():
     assert o.sim_end_cond
 
 
-def test_chem_solver_one_point():
-    from pathlib import Path
+@pytest.mark.parametrize("failure", ["invalid", "exception", "nonfinite", "negative"])
+def test_live_chemistry_does_not_replace_solver_failure_with_fixed_values(monkeypatch, failure):
+    from hrap.advanced.chem import ChemSolver, live_propellant_tables
 
-    from hrap.advanced.chem import ChemSolver, _thermo_path, make_basic_reactant
+    def fail(*args):
+        if failure == "exception":
+            raise RuntimeError("solver failed")
+        return ChemSolver.Result(
+            valid=failure != "invalid",
+            T=float("nan") if failure == "nonfinite" else 2400.0,
+            M=-1.0 if failure == "negative" else 25.0,
+            gamma=1.2,
+        )
 
-    path = _thermo_path()
-    if not Path(path).exists():
-        pytest.skip("thermo.dat missing")
-    fuel = make_basic_reactant("HDPE", {"C": 2, "H": 4}, 28.05, 298.15, -52e6)
-    solver = ChemSolver([path, fuel])
-    res = solver.solve(3.0e6, {"N2O": 0.87, "HDPE": 0.13})
-    assert res.T > 800.0
-    assert 1.05 < res.gamma < 1.8
-    assert res.M > 5.0
+    monkeypatch.setattr(ChemSolver, "solve", fail)
+    with pytest.raises(ValueError, match="Live chemistry.*ABS.*O/F=.*pressure="):
+        live_propellant_tables("ABS")
+
+
+@pytest.mark.parametrize("ident,formula", [("HTPB_Paraffin", "50P"), ("Metalized_Plastisol", "MPLAST"), (" ABS ", "ABS")])
+@pytest.mark.parametrize("as_propellant", [False, True])
+def test_live_chemistry_selects_exact_recipe(monkeypatch, ident, formula, as_propellant):
+    from hrap.advanced.chem import ChemSolver, live_propellant_tables
+    from hrap.io.propellant import load_propellant
+
+    supplies = []
+
+    def solve(self, pressure, supply):
+        supplies.append(supply)
+        return ChemSolver.Result(valid=True, T=2400.0, gamma=1.2, M=25.0)
+
+    monkeypatch.setattr(ChemSolver, "solve", solve)
+    result = live_propellant_tables(load_propellant(ident) if as_propellant else ident)
+    assert supplies and all(set(supply) == {"N2O", formula} for supply in supplies)
+    assert (result.T == 2400.0).all()
+
+
+def test_live_chemistry_rejects_unknown_fuel_instead_of_using_abs():
+    from dataclasses import replace
+    from hrap.advanced.chem import live_propellant_tables
+    from hrap.io.propellant import load_propellant
+
+    unknown = replace(load_propellant("ABS"), name="Unspecified fuel")
+    with pytest.raises(ValueError, match="No live chemistry recipe"):
+        live_propellant_tables(unknown)

@@ -58,9 +58,14 @@ For a **straight centerline with twisting walls**, choose `twisted star` instead
 ## Tests
 
 ```
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,advanced]"
 python -m pytest
+python -m pyright
 ```
+
+Pyright checks the active `src/hrap` package using `.venv`. The advanced dependencies are needed to check optional imports such as CoolProp. See [the diagnostic investigation](docs/diagnostics.md) for the issues found and the limits of these checks.
+
+Optional live chemistry currently fails to converge for the bundled ABS table. It now reports the failure instead of silently substituting fixed gas properties. Use the default stored tables for the existing simulation examples; repairing and validating the live solver remains separate work.
 
 Golden traces live in `tests/golden/`. Component tests (NOX, interp2x) and the evaporating-liquid prefix of a full burn match MATLAB to **1e-8**.
 

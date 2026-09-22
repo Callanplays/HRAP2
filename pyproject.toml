@@ -30,6 +30,7 @@ advanced = [
 ]
 dev = [
     "pytest",
+    "pyright",
 ]
 build = [
     "pyinstaller>=6.0",
@@ -61,3 +62,9 @@ include = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.pyright]
+include = ["src/hrap"]
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from typing import cast
 
 from scipy.optimize import brentq
 
@@ -21,7 +22,7 @@ def nozzle(s: Settings, x: State) -> State:
             )
 
         # Unique supersonic root (MATLAB fzero from guess 3).
-        M = float(brentq(A_ratio, 1.0000001, 80.0, xtol=2.2e-16, maxiter=200))
+        M = cast(float, brentq(A_ratio, 1.0000001, 80.0, xtol=2.2e-16, maxiter=200))
         Pe = x.P_cmbr * (1.0 + 0.5 * (k - 1.0) * M ** 2) ** (-k / (k - 1.0))
         Ath = 0.25 * math.pi * s.noz_thrt ** 2
         Aex = Ath * s.noz_ER

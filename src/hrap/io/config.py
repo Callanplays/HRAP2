@@ -5,7 +5,7 @@ import json
 import math
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -333,7 +333,7 @@ def resolve(cfg: dict[str, Any], get_sat_props=None) -> tuple[Settings, State]:
             return vapor_pressure(T) - P_targ
 
         try:
-            T_tnk = float(brentq(residual, 183.15, 309.56, xtol=2.2e-16, maxiter=200))
+            T_tnk = cast(float, brentq(residual, 183.15, 309.56, xtol=2.2e-16, maxiter=200))
         except ValueError:
             T_tnk = matlab_fzero(residual, 273.15)
     else:

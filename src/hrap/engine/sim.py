@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
 import numpy as np
 
@@ -57,9 +57,10 @@ def record(o: Output, x: State, t: float, i: int, s: Settings) -> None:
     o.m_f[i] = x.m_f
     o.dP[i] = x.dP
     o.F_thr[i] = x.F_thr
+    # _blank_output allocates these series; imported/export-only Output may omit them.
     mp = mass_properties(s, x)
-    o.m_t[i] = mp[0]
-    o.cg[i] = mp[1]
+    cast(np.ndarray, o.m_t)[i] = mp[0]
+    cast(np.ndarray, o.cg)[i] = mp[1]
 
 
 def sim_iteration(s: Settings, x: State, o: Output, t: float, i: int) -> tuple[Settings, State, Output, float]:
@@ -147,9 +148,10 @@ def run(
     o.mdot_n[0] = x.mdot_n
     o.rdot[0] = x.rdot
     o.m_f[0] = x.m_f
+    # _blank_output allocates these series; imported/export-only Output may omit them.
     mp = mass_properties(s, x)
-    o.m_t[0] = mp[0]
-    o.cg[0] = mp[1]
+    cast(np.ndarray, o.m_t)[0] = mp[0]
+    cast(np.ndarray, o.cg)[0] = mp[1]
     if on_progress is not None:
         on_progress(0, o.t.size)
     s, x, o, _t = sim_loop(s, x, o, 0.0, on_progress=on_progress)

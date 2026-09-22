@@ -93,7 +93,7 @@ def configure_star(s: Settings, x: State, n_tips: int, inner_ratio: float,
     x.m_f = s.prop_Rho * fuel_volume
     x.m_g = 1.225 * (s.cmbr_V - fuel_volume)
     x.grn_ID = x.grn_ID_old = s.grn_ID0 = 2 * math.sqrt(areas[0] / math.pi)
-    s.grn_ID_limit = 2 * math.sqrt(areas[-1] / math.pi)
+    s.grn_ID_limit = id_limit = 2 * math.sqrt(areas[-1] / math.pi)
 
     def regress(s: Settings, x: State) -> State:
         area = math.pi / 4 * x.grn_ID**2
@@ -110,7 +110,7 @@ def configure_star(s: Settings, x: State, n_tips: int, inner_ratio: float,
         new_area = float(np.interp(new_web, web, areas))
         consumed = s.prop_Rho * s.grn_L * (new_area - area)
         x.grn_ID_old = x.grn_ID
-        x.grn_ID = s.grn_ID_limit if new_web >= web[-1] else 2 * math.sqrt(new_area / math.pi)
+        x.grn_ID = id_limit if new_web >= web[-1] else 2 * math.sqrt(new_area / math.pi)
         x.mdot_f = consumed / s.dt
         x.m_f = s.prop_Rho * (outer_area - new_area) * s.grn_L
         x.OF = x.mdot_o / x.mdot_f if x.mdot_f > 0 else 0.0

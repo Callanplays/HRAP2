@@ -13,9 +13,9 @@ def coolprop_sat(fluid: str, T_min: float | None = None, T_max: float | None = N
         raise ImportError("CoolProp is required for advanced fluids. pip install hrap[advanced]") from exc
 
     if T_min is None:
-        T_min = CP.PropsSI("Tmin", fluid) + 1.0
+        T_min = float(CP.PropsSI("Tmin", fluid)) + 1.0
     if T_max is None:
-        T_max = min(CP.PropsSI("Tcrit", fluid) - 0.5, T_min + 200.0)
+        T_max = min(float(CP.PropsSI("Tcrit", fluid)) - 0.5, T_min + 200.0)
     T_grid = np.linspace(T_min, T_max, n)
     Pv = np.array([CP.PropsSI("P", "T", T, "Q", 0, fluid) for T in T_grid])
     rho_l = np.array([CP.PropsSI("D", "T", T, "Q", 0, fluid) for T in T_grid])
