@@ -21,6 +21,8 @@ if [[ ! -x .venv/bin/python ]]; then
     fi
 fi
 
+.venv/bin/python -c 'import sys; sys.exit("HRAP requires Python 3.10 or later. Rename the existing .venv folder and relaunch to create a supported environment." if sys.version_info < (3, 10) else 0)'
+
 export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 if ! .venv/bin/python -c 'import hrap.gui.main' 2>/dev/null; then
     echo "Installing HRAP dependencies…"
