@@ -65,7 +65,7 @@ python -m pyright
 
 Pyright checks the active `src/hrap` package using `.venv`. The advanced dependencies are needed to check optional imports such as CoolProp. See [the diagnostic investigation](docs/diagnostics.md) for the issues found and the limits of these checks.
 
-Optional live chemistry currently fails to converge for the bundled ABS table. It now reports the failure instead of silently substituting fixed gas properties. Use the default stored tables for the existing simulation examples; repairing and validating the live solver remains separate work.
+Optional live chemistry computes neutral, gas-phase equilibrium using the bundled thermodynamic data. All eight bundled fuel tables now converge; selected cases are checked against independent Cantera results. It excludes ions and condensed products such as soot or liquid/solid alumina. See [how the solver was fixed and checked](docs/live-chemistry.md), including the fuel-recipe and inlet assumptions.
 
 Golden traces live in `tests/golden/`. Component tests (NOX, interp2x) and the evaporating-liquid prefix of a full burn match MATLAB to **1e-8**.
 

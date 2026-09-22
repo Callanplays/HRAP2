@@ -25,13 +25,13 @@ Recipe selection used substring matching, so `HTPB_Paraffin` selected plain HTPB
 
 These bugs concern optional live chemistry, not the default stored MATLAB-derived tables. Regression tests cover invalid results, exceptions, nonfinite results, fuel IDs/display names, and unsupported fuels.
 
-Nonpositive temperature or molecular mass, and gamma at or below one, are also rejected before clipping.
+Nonpositive temperature or molecular mass, and gamma at or below one, are also rejected.
 
-## What is still unresolved
+## Follow-up chemistry repair
 
-The live chemistry solver itself is not repaired or validated. In a real run, generating the bundled ABS table fails at O/F 1 and 500000 Pa. The former single-point chemistry test also returned `valid=False` even though its temperature and other values passed broad bounds. That misleading test has been replaced by failure-handling and recipe-selection tests.
+At the time of this diagnostic audit, the solver failed for bundled ABS at O/F 1 and 500000 Pa. The former single-point chemistry test also returned `valid=False` even though its temperature and other values passed broad bounds. That misleading test was replaced by failure-handling and recipe-selection tests.
 
-Existing clipping inside the experimental solver/table builder and the assumed fuel recipes still need numerical and engineering review. A clean type check does not validate those equations or establish agreement with a firing.
+The subsequent [live-chemistry repair](live-chemistry.md) fixes the equation/species mismatch, replaces the fragile iteration, removes output clipping, and checks results against Cantera. The assumed fuel recipes and gas-only model still limit physical accuracy. A clean type check does not establish agreement with a firing.
 
 ## Repeat the checks
 

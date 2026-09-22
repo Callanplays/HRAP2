@@ -539,7 +539,9 @@ class MainWindow(QMainWindow):
         adv = CollapsibleBox("Advanced (not MATLAB-identical)")
         af = adv.form()
         self.adv_on = QCheckBox("Enable advanced options — results will not match original HRAP")
-        self.live_chem = QCheckBox("Live chemistry (NASA thermo.dat Gibbs solver)")
+        self.live_chem = QCheckBox("Live chemistry (gas phase only)")
+        self.live_chem.setToolTip("Neutral-gas equilibrium; excludes ions, soot and other condensed products. "
+                                 "Uses bundled fuel recipes and inlet-enthalpy assumptions.")
         self.ox_fluid = PlainComboBox()
         self.ox_fluid.addItems(["N2O_legacy", "NitrousOxide (CoolProp)", "Oxygen (CoolProp)"])
         self.grain_shape = PlainComboBox()

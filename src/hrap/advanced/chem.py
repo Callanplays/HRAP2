@@ -1,45 +1,41 @@
 """Optional live chemistry (advanced mode, not MATLAB-identical).
 
-NumPy port of the Gibbs-energy minimizer in the legacy JAX ``chem.py``.
+Neutral ideal-gas equilibrium using element potentials and atom/enthalpy balances.
 Default HRAP still uses frozen MATLAB ``.mat`` / JSON tables.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, TypedDict
 
 import numpy as np
+from scipy.optimize import least_squares
+from scipy.special import logsumexp
 
 from hrap.engine.types import Propellant
 from hrap.io.propellant import load_propellant
 
 Rhat = 8314.0  # J/(K*kmol), same as the JAX ChemSolver
-_ATM = 101325.0
-N_CURVE_MAX = 3
+REFERENCE_PRESSURE = 100000.0  # NASA9 standard-state pressure, Pa
+EQUILIBRIUM_TOL = 1e-8
 
-# Product names to keep the live table builder interactive (full thermo.dat is huge).
-DEFAULT_PRODUCTS = (
-    "CO2", "CO", "H2O", "H2", "O2", "N2", "OH", "NO", "N2O", "NO2",
-    "H", "O", "N", "C", "HO2", "H2O2", "NH3", "CH4",
-)
 
 class FuelRecipe(TypedDict):
     formula: str
     composition: dict[str, float]
-    M: float
     h0: float
 
 
 FUEL_RECIPES: dict[str, FuelRecipe] = {
-    "ABS": FuelRecipe(formula="ABS", composition={"C": 8.0, "H": 8.0, "N": 1.0}, M=119.16, h0=147.0e6),
-    "HDPE": FuelRecipe(formula="HDPE", composition={"C": 2.0, "H": 4.0}, M=28.05, h0=-52.0e6),
-    "HTPB": FuelRecipe(formula="HTPB", composition={"C": 7.22, "H": 10.86, "O": 0.17}, M=100.0, h0=-12.0e6),
-    "Paraffin": FuelRecipe(formula="PARAFFIN", composition={"C": 32.0, "H": 66.0}, M=450.0, h0=-930.0e6),
-    "HTPB_Paraffin": FuelRecipe(formula="50P", composition={"C": 20.0, "H": 38.0, "O": 0.1}, M=280.0, h0=-400.0e6),
-    "Asphalt": FuelRecipe(formula="ASPHALT", composition={"C": 10.0, "H": 12.0, "S": 0.2}, M=140.0, h0=50.0e6),
-    "Sorbitol": FuelRecipe(formula="SORBITOL", composition={"C": 6.0, "H": 14.0, "O": 6.0}, M=182.17, h0=-1335.0e6),
-    "Metalized_Plastisol": FuelRecipe(formula="MPLAST", composition={"C": 4.0, "H": 6.0, "O": 1.0, "AL": 1.0}, M=86.0, h0=-150.0e6),
+    "ABS": FuelRecipe(formula="ABS", composition={"C": 8.0, "H": 8.0, "N": 1.0}, h0=147.0e6),
+    "HDPE": FuelRecipe(formula="HDPE", composition={"C": 2.0, "H": 4.0}, h0=-52.0e6),
+    "HTPB": FuelRecipe(formula="HTPB", composition={"C": 7.22, "H": 10.86, "O": 0.17}, h0=-12.0e6),
+    "Paraffin": FuelRecipe(formula="PARAFFIN", composition={"C": 32.0, "H": 66.0}, h0=-930.0e6),
+    "HTPB_Paraffin": FuelRecipe(formula="50P", composition={"C": 20.0, "H": 38.0, "O": 0.1}, h0=-400.0e6),
+    "Asphalt": FuelRecipe(formula="ASPHALT", composition={"C": 10.0, "H": 12.0, "S": 0.2}, h0=50.0e6),
+    "Sorbitol": FuelRecipe(formula="SORBITOL", composition={"C": 6.0, "H": 14.0, "O": 6.0}, h0=-1335.0e6),
+    "Metalized_Plastisol": FuelRecipe(formula="MPLAST", composition={"C": 4.0, "H": 6.0, "O": 1.0, "AL": 1.0}, h0=-150.0e6),
 }
 
 
@@ -128,55 +124,28 @@ def _thermo_path() -> Path:
     return Path(__file__).resolve().parents[3] / "HRAP - Python" / "hrap" / "thermo.dat"
 
 
-def _eval_curve(coeffs: np.ndarray, T: float, kind: str) -> float:
-    c = coeffs
-    if kind == "Cp":
-        return c[0] / (T * T) + c[1] / T + c[2] + c[3] * T + c[4] * T * T + c[5] * T ** 3 + c[6] * T ** 4
-    if kind == "H":
-        return (
-            -c[0] / (T * T)
-            + c[1] / T * np.log(T)
-            + c[2]
-            + c[3] * T / 2.0
-            + c[4] * T * T / 3.0
-            + c[5] * T ** 3 / 4.0
-            + c[6] * T ** 4 / 5.0
-            + c[7] / T
-        )
-    return (
-        -c[0] / (2.0 * T * T)
-        - c[1] / T
-        + c[2] * np.log(T)
-        + c[3] * T
-        + c[4] * T * T / 2.0
-        + c[5] * T ** 3 / 3.0
-        + c[6] * T ** 4 / 4.0
-        + c[8]
-    )
-
-
 def _props_at(T_bounds: np.ndarray, coeffs: np.ndarray, T: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    n = coeffs.shape[0]
-    Cp = np.empty(n)
-    H = np.empty(n)
-    S = np.empty(n)
-    for j in range(n):
-        i = 0
-        for k in range(T_bounds.shape[1]):
-            if T_bounds[j, k, 1] > 0 and T > T_bounds[j, k, 0]:
-                i = k
-        Cp[j] = _eval_curve(coeffs[j, i], T, "Cp")
-        H[j] = _eval_curve(coeffs[j, i], T, "H")
-        S[j] = _eval_curve(coeffs[j, i], T, "S")
-    return Cp, H, S
+    """NASA9 Cp/R, H/RT and S/R, selecting each species' temperature interval."""
+    indices = np.maximum(0, np.sum(T > T_bounds, axis=1) - 1)
+    c = coeffs[np.arange(coeffs.shape[0]), indices].T
+    cp = c[0] / T**2 + c[1] / T + c[2] + c[3]*T + c[4]*T**2 + c[5]*T**3 + c[6]*T**4
+    h = (-c[0] / T**2 + c[1]*np.log(T) / T + c[2] + c[3]*T/2
+         + c[4]*T**2/3 + c[5]*T**3/4 + c[6]*T**4/5 + c[7]/T)
+    entropy = (-c[0] / (2*T**2) - c[1]/T + c[2]*np.log(T) + c[3]*T
+               + c[4]*T**2/2 + c[5]*T**3/3 + c[6]*T**4/4 + c[8])
+    return cp, h, entropy
 
 
 class ChemSolver:
-    """HP Gibbs minimizer (Gordon–McBride reduced equations), NumPy implementation."""
+    """Constant-enthalpy/pressure equilibrium of neutral ideal gases.
 
-    def __init__(self, chem_infos, product_allow=DEFAULT_PRODUCTS):
+    Condensed products and ionization are not modeled. Optional product_allow
+    restricts products explicitly; by default all compatible neutral gases are used.
+    """
+
+    def __init__(self, chem_infos, product_allow=None):
         self.substances: Dict[str, ThermoSubstance] = {}
-        self.product_allow = set(product_allow) if product_allow else None
+        self.product_allow = frozenset(product_allow) if product_allow is not None else None
         if not isinstance(chem_infos, (list, tuple)):
             chem_infos = [chem_infos]
         for chem_info in chem_infos:
@@ -233,7 +202,7 @@ class ChemSolver:
                     providers = []
                     if fit_pieces == 0:
                         T = float(line[0:11].strip(" "))
-                        providers.append(NASA9(T, T, DeltaHForm, np.array([0.0] * 2 + [DeltaHForm / Rhat / T] + [0.0] * 5)))
+                        providers.append(NASA9(T, T, DeltaHForm, np.array([0.0] * 2 + [DeltaHForm / Rhat / T] + [0.0] * 6)))
                     else:
                         for j in range(fit_pieces):
                             i = 0
@@ -289,155 +258,127 @@ class ChemSolver:
         R: float = 287.0
         valid: bool = False
         iters: int = 0
+        reason: str = ""
+        composition: dict[str, float] = field(default_factory=dict)  # mole fractions
+        element_error: float = float("inf")
+        energy_error: float = float("inf")
+        equilibrium_error: float = float("inf")
+        mass_error: float = float("inf")
 
-    def solve(self, Pc: float, supply: dict, max_iters: int = 80) -> Result:
-        if not supply or Pc <= 0.0:
-            return self.Result(valid=False)
-        present_elements = ["E"]
-        for formula in supply:
-            sub = self.substances[formula]
-            for elem in sub.composition:
-                if elem not in present_elements:
-                    present_elements.append(elem)
-        present_elements = sorted(present_elements)
+    def solve(self, Pc: float, supply: dict, max_iters: int = 500) -> Result:
+        """Solve for gas composition and temperature; accept by balance residuals.
 
-        gasses = []
-        T_bounds = []
-        coeffs = []
-        for sub in self.substances.values():
-            if not (sub.is_product and not sub.condensed):
-                continue
-            if self.product_allow and sub.formula not in self.product_allow:
-                continue
-            if not all(elem in present_elements for elem in sub.composition):
-                continue
-            n_curves = min(len(sub.providers), N_CURVE_MAX)
-            tb = np.zeros((N_CURVE_MAX, 2))
-            cf = np.zeros((N_CURVE_MAX, 9))
-            for i, prov in enumerate(sub.providers[:n_curves]):
-                tb[i] = [prov.T_min, prov.T_max]
-                cf[i] = prov.coeffs
-            T_bounds.append(tb)
-            coeffs.append(cf)
-            gasses.append(sub)
-        if not gasses:
-            return self.Result(valid=False)
+        Supply values are mass amounts, or (mass amount, inlet temperature).
+        Scalar amounts retain the inherited inlet convention: each reactant's
+        minimum tabulated temperature. Amounts are normalized to a 1 kg feed.
+        """
+        if not np.isfinite(Pc) or Pc <= 0 or not supply or max_iters < 1:
+            raise ValueError("Chemistry needs positive finite pressure, reactants and an iteration budget.")
+        feeds = []
+        for name, value in supply.items():
+            sub = self.substances[name]
+            amount, temperature = value if isinstance(value, (tuple, list)) else (value, sub.T_min)
+            amount, temperature = float(amount), float(temperature)
+            if not np.isfinite([amount, temperature]).all() or amount < 0 or temperature <= 0:
+                raise ValueError(f"Invalid mass or inlet temperature for {name}.")
+            if sub.composition.get("E", 0):
+                raise ValueError("Charged reactants require an ionized equilibrium model.")
+            if not sub.T_min <= temperature <= sub.T_max:
+                raise ValueError(f"Inlet temperature for {name} is outside its thermodynamic data.")
+            if amount > 0:
+                feeds.append((sub, amount, temperature))
+        total_mass = sum(amount for _, amount, _ in feeds)
+        if total_mass <= 0:
+            raise ValueError("At least one reactant must have positive mass.")
+        elements = sorted({e for sub, _, _ in feeds for e, v in sub.composition.items() if v})
+        if self.product_allow is not None:
+            for name in self.product_allow:
+                sub = self.substances[name]
+                if sub.condensed or sub.composition.get("E", 0):
+                    raise ValueError(f"Product {name} is not a neutral gas; that phase/charge model is unsupported.")
+        gases = [sub for sub in self.substances.values()
+                 if sub.is_product and not sub.condensed and not sub.composition.get("E", 0)
+                 and (self.product_allow is None or sub.formula in self.product_allow)
+                 and all(e in elements for e, v in sub.composition.items() if v)]
+        if not gases:
+            raise ValueError("No compatible neutral gas products in the thermodynamic data.")
+        atoms = np.array([[sub.composition.get(e, 0.0) for e in elements] for sub in gases])
+        missing = [e for i, e in enumerate(elements) if not np.any(atoms[:, i])]
+        if missing:
+            raise ValueError(f"Selected products cannot conserve these elements: {', '.join(missing)}.")
+        lower_T = max(sub.T_min for sub in gases)
+        upper_T = min(sub.T_max for sub in gases)
+        if lower_T >= upper_T:
+            raise ValueError("Selected products have no shared thermodynamic temperature range.")
+        n_curves = max(len(sub.providers) for sub in gases)
+        bounds = np.full((len(gases), n_curves), np.inf)
+        coeffs = np.zeros((len(gases), n_curves, 9))
+        for i, sub in enumerate(gases):
+            for j, curve in enumerate(sub.providers):
+                bounds[i, j] = curve.T_min
+                coeffs[i, j] = curve.coeffs
+        budget = np.zeros(len(elements))
+        inlet_h = 0.0
+        for sub, amount, temperature in feeds:
+            mols = amount / total_mass / sub.M
+            budget += mols * np.array([sub.composition.get(e, 0.0) for e in elements])
+            inlet_h += mols * sub.get_H_D(temperature) * Rhat * temperature
+        atom_total = float(budget.sum())
 
-        N_gas = len(gasses)
-        N_elem = len(present_elements)
-        gas_a = np.zeros((N_gas, N_elem))
-        for i, gas in enumerate(gasses):
-            for elem, amount in gas.composition.items():
-                gas_a[i, present_elements.index(elem)] = amount
-        T_bounds = np.asarray(T_bounds)
-        coeffs = np.asarray(coeffs)
+        def state(z):
+            total_mols, temperature = np.exp(z[-2:])
+            cp, h, entropy = _props_at(bounds, coeffs, temperature)
+            log_y = atoms @ z[:-2] - h + entropy - np.log(Pc / REFERENCE_PRESSURE)
+            log_sum = logsumexp(log_y)
+            fractions = np.exp(log_y - log_sum)
+            return total_mols, temperature, fractions, log_sum, cp, h
 
-        T = 3000.0
-        n = 0.1
-        n_j = np.ones(N_gas) * 0.1 / N_gas
-        pi_i = np.zeros(N_elem)
-        Deltaln_n = 0.0
-        Deltaln_T = 0.0
+        def residual(z):
+            total_mols, temperature, fractions, log_sum, _, h = state(z)
+            balance = total_mols * (atoms.T @ fractions)
+            return np.r_[np.log(balance / budget), log_sum,
+                         (total_mols * (fractions @ h) - inlet_h / (Rhat * temperature)) / atom_total]
 
-        h_0 = 0.0
-        b_i0 = np.zeros(N_elem)
-        for formula, inputs in supply.items():
-            sub = self.substances[formula]
-            if isinstance(inputs, (tuple, list)):
-                m_frac, T_in = float(inputs[0]), float(inputs[1])
-            else:
-                m_frac, T_in = float(inputs), sub.T_min
-            n_in = m_frac / sub.M
-            h_0 += n_in * sub.get_H_D(T_in) * Rhat * T_in
-            for elem, amount in sub.composition.items():
-                b_i0[present_elements.index(elem)] += amount * n_in
-        b_i0_max = float(np.max(b_i0)) if np.max(b_i0) > 0 else 1.0
-
-        valid = False
-        it = 0
-        Deltan_j = np.zeros(N_gas)
-        for it in range(1, max_iters + 1):
-            gas_Cp_D, gas_H_D, gas_S_D = _props_at(T_bounds, coeffs, T)
-            N_dof = N_elem + 2
-            rhs = np.zeros(N_dof)
-            n_j = np.clip(n_j, 1e-30, None)
-            n = max(n, 1e-30)
-            a_n = gas_a * n_j[:, None]
-            mu = gas_H_D - gas_S_D + np.log(n_j / n) + np.log(Pc / 1e5)
-            rhs[:N_elem] = -b_i0 + (a_n * pi_i[None, :]).sum(axis=1).sum() * 0  # filled below
-            for k in range(N_elem):
-                akn = a_n[:, k]
-                rhs[k] = (
-                    -b_i0[k]
-                    + np.sum((akn[:, None] * gas_a) * pi_i[None, :])
-                    + np.sum(akn * Deltaln_n)
-                    + np.sum(akn * gas_H_D * Deltaln_T)
-                    - np.sum(akn * mu)
-                    + np.sum(akn)
-                )
-            rhs[-2] = (
-                -n
-                - n * Deltaln_n
-                + np.sum((gas_a * n_j[:, None]) * pi_i[None, :])
-                + np.sum(n_j * Deltaln_n)
-                + np.sum(n_j * gas_H_D * Deltaln_T)
-                + np.sum(n_j)
-                - np.sum(n_j * mu)
-            )
-            rhs[-1] = (
-                -h_0 / (Rhat * T)
-                + np.sum((gas_a * (n_j * gas_H_D)[:, None]) * pi_i[None, :])
-                + np.sum(n_j * gas_H_D * Deltaln_n)
-                + np.sum(n_j * gas_H_D)
-                + np.sum(n_j * (gas_Cp_D + gas_H_D * gas_H_D) * Deltaln_T)
-                - np.sum(n_j * gas_H_D * mu)
-            )
-            jac = np.zeros((N_dof, N_dof))
-            jac[:N_elem, :N_elem] = gas_a.T @ (gas_a * n_j[:, None])
-            jac[:N_elem, -2] = np.sum(gas_a * n_j[:, None], axis=0)
-            jac[:N_elem, -1] = np.sum(gas_a * (n_j * gas_H_D)[:, None], axis=0)
-            jac[-2, :N_elem] = jac[:N_elem, -2]
-            jac[-1, :N_elem] = jac[:N_elem, -1]
-            jac[-2, -2] = np.sum(n_j) - n
-            jac[-1, -2] = np.sum(n_j * gas_H_D)
-            jac[-2, -1] = np.sum(n_j * gas_H_D)
-            jac[-1, -1] = np.sum(n_j * (gas_Cp_D + gas_H_D ** 2))
-            try:
-                upd = np.linalg.solve(jac, rhs)
-            except np.linalg.LinAlgError:
-                break
-            pi_i = pi_i - upd[:N_elem]
-            Deltaln_n = Deltaln_n - upd[-2]
-            Deltaln_T = Deltaln_T - upd[-1]
-            Deltan_j = Deltaln_n + gas_H_D * Deltaln_T - mu + np.sum(gas_a * pi_i[None, :], axis=1)
-            lambda1 = 5.0 * max(abs(Deltaln_T), abs(Deltaln_n), float(np.max(np.abs(Deltan_j))))
-            ln_nj_n = np.log(n_j / n)
-            v = np.abs((-ln_nj_n - 9.2103404) / np.where(np.abs(Deltan_j - Deltaln_n) < 1e-30, 1.0, Deltan_j - Deltaln_n))
-            mask = (ln_nj_n <= -18.420681) & (Deltan_j >= 0.0)
-            lambda2 = float(np.min(v[mask])) if np.any(mask) else np.inf
-            lam = min(1.0, 2.0 / max(lambda1, 1e-12), lambda2)
-            n_j = n_j * np.exp(lam * Deltan_j)
-            n = n * np.exp(lam * Deltaln_n)
-            T = float(T * np.exp(lam * Deltaln_T))
-            T = float(np.clip(T, 200.0, 6000.0))
-            sum_n = np.sum(n_j)
-            mass_ok = np.all(np.abs(b_i0 - np.sum(gas_a * n_j[:, None], axis=0)) < b_i0_max * 1e-6)
-            if (
-                abs(Deltaln_T) <= 1e-4
-                and (np.sum(n_j * np.abs(Deltan_j)) / max(sum_n, 1e-30)) <= 5e-6
-                and (n * abs(Deltaln_n) / max(sum_n, 1e-30)) <= 5e-6
-                and mass_ok
-            ):
-                valid = True
-                break
-
-        Cp_D, H_D, _S = _props_at(T_bounds, coeffs, T)
-        Cp_frozen = float(np.sum(n_j * Cp_D) * Rhat)
-        M = 1.0 / max(n, 1e-12)
-        R = Rhat / M
-        Cv = Cp_frozen - R
-        gamma = Cp_frozen / Cv if Cv != 0 else 1.2
-        return self.Result(T=T, Cp=Cp_frozen, Cv=Cv, gamma=gamma, M=M, R=R, valid=valid, iters=it)
+        # Element potentials make species amounts positive without clipping them.
+        T0 = float(np.clip(3000.0, lower_T + 1e-6, upper_T - 1e-6))
+        _, h, entropy = _props_at(bounds, coeffs, T0)
+        potentials = np.linalg.lstsq(atoms, h - entropy + np.log(Pc / REFERENCE_PRESSURE)
+                                    - np.log(len(gases)), rcond=None)[0]
+        counts = atoms.sum(axis=1)
+        lower_n = atom_total / counts.max() / 2
+        upper_n = atom_total / counts.min() * 2
+        initial = np.r_[potentials, np.log(np.sqrt(lower_n * upper_n)), np.log(T0)]
+        fit = least_squares(
+            residual, initial,
+            bounds=(np.r_[np.full(len(elements), -np.inf), np.log(lower_n), np.log(lower_T)],
+                    np.r_[np.full(len(elements), np.inf), np.log(upper_n), np.log(upper_T)]),
+            max_nfev=max_iters, ftol=1e-11, xtol=1e-11, gtol=1e-11,
+        )
+        # A solver stop flag alone does not establish chemical equilibrium.
+        errors = residual(fit.x)
+        total_mols, temperature, fractions, _, cp, _ = state(fit.x)
+        element_error = float(np.max(np.abs(np.expm1(errors[:-2]))))
+        equilibrium_error = float(abs(errors[-2]))
+        energy_error = float(abs(errors[-1]))
+        molar_mass = float(fractions @ np.array([sub.M for sub in gases]))
+        mass_error = float(abs(total_mols * molar_mass - 1.0))
+        gas_constant = Rhat / molar_mass
+        cp_mass = float(Rhat * (fractions @ cp) / molar_mass)
+        cv_mass = cp_mass - gas_constant
+        valid = bool(np.isfinite(errors).all() and np.max(np.abs(errors)) <= EQUILIBRIUM_TOL
+                     and np.isfinite([temperature, molar_mass, cp_mass, cv_mass]).all()
+                     and lower_T <= temperature <= upper_T and molar_mass > 0 and cv_mass > 0
+                     and mass_error <= 1e-6)
+        return self.Result(
+            T=float(temperature), Cp=cp_mass, Cv=cv_mass,
+            gamma=cp_mass / cv_mass if cv_mass > 0 else float("nan"),
+            M=molar_mass, R=gas_constant, valid=valid, iters=fit.nfev,
+            reason="" if valid else (f"Equilibrium residual={np.max(np.abs(errors)):.3g}, "
+                                    f"mass error={mass_error:.3g}; {fit.message}"),
+            composition={sub.formula: float(y) for sub, y in zip(gases, fractions)},
+            element_error=element_error, energy_error=energy_error, equilibrium_error=equilibrium_error,
+            mass_error=mass_error,
+        )
 
 
 def blend_tables(ident: str, scale_T: float = 1.0) -> Propellant:
@@ -465,8 +406,11 @@ def live_propellant_tables(base: str | Propellant, ox_formula: str = "N2O") -> P
                    if normalized in (key.casefold(), rec["formula"].casefold())), None)
     if recipe is None:
         raise ValueError(f"No live chemistry recipe for {ident!r}.")
-    fuel = make_basic_reactant(recipe["formula"], recipe["composition"], recipe["M"], 298.15, recipe["h0"])
-    solver = ChemSolver([_thermo_path(), fuel])
+    solver = ChemSolver(_thermo_path())
+    # Keep molecular mass consistent with the recipe's atoms, not a separate guess.
+    mass = sum(solver.substances[e].M * count for e, count in recipe["composition"].items())
+    fuel = make_basic_reactant(recipe["formula"], recipe["composition"], mass, 298.15, recipe["h0"])
+    solver.substances[fuel.formula] = fuel
     OF = np.asarray(prop.OF, dtype=float).ravel()
     Pc = np.asarray(prop.Pc, dtype=float).ravel()
 
@@ -493,10 +437,10 @@ def live_propellant_tables(base: str | Propellant, ox_formula: str = "N2O") -> P
                 raise ValueError(f"Live chemistry failed for {context}: {exc}") from exc
             if (not res.valid or not np.isfinite([res.T, res.gamma, res.M]).all()
                     or res.T <= 0 or res.M <= 0 or res.gamma <= 1):
-                raise ValueError(f"Live chemistry did not produce a valid result for {context}.")
-            k[i, j] = float(np.clip(res.gamma, 1.05, 1.8))
-            M[i, j] = float(np.clip(res.M, 8.0, 50.0))
-            T[i, j] = float(np.clip(res.T, 500.0, 5500.0))
+                raise ValueError(f"Live chemistry did not produce a valid result for {context}: {res.reason}")
+            k[i, j] = res.gamma
+            M[i, j] = res.M
+            T[i, j] = res.T
     return Propellant(
         name=f"{prop.name} (live chem)",
         opt_OF=prop.opt_OF,

@@ -225,6 +225,8 @@ def resolve(cfg: dict[str, Any], get_sat_props=None) -> tuple[Settings, State]:
     prop = load_propellant(str(prop_key))
 
     adv = cfg.get("advanced") or {}
+    if adv.get("live_chem") and "Oxygen" in str(adv.get("ox_fluid") or ""):
+        raise ValueError("Live chemistry currently supports nitrous oxide only; Oxygen is unsupported.")
     if get_sat_props is None and adv.get("enabled"):
         fluid_name = str(adv.get("ox_fluid") or "")
         if "CoolProp" in fluid_name:
