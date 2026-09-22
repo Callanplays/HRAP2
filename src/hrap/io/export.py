@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from xml.sax.saxutils import quoteattr
 
 import numpy as np
 
@@ -124,7 +125,7 @@ def export_rse(
         t, F, mdot, m, Cg = _bin_resample(t, bins, F, mdot, m, Cg)
 
     if F.size and F[-1] != 0.0:
-        t = np.append(t, T_burn + 1e-5)
+        t = np.append(t, t[-1] + 1e-5)
         F = np.append(F, 0.0)
         mdot = np.append(mdot, 0.0)
         m = np.append(m, m[-1])
@@ -147,7 +148,7 @@ def export_rse(
             f' burn-time="{T_burn}" cgDiv="10" cgFix="1" cgStep="-1." code="{code}{int(round(F_avg))}" delays="0"'
             f' dia="{OD * 1000.0}" D_exit="{D_exit * 1000.0}" initWt="{m[0] * 1000.0}" len="{L * 1000.0}"'
             f' mDiv="10" mFix="1" mStep="-1." massFrac="{(m[0] - m[-1]) / m[0] if m[0] else 0.0}"'
-            f' mfg="{mfg}" peakThrust="{F_max}"'
+            f' mfg={quoteattr(mfg)} peakThrust="{F_max}"'
             f' propWt="{(m[0] - m[-1]) * 1000.0}" tDiv="10" tFix="1" tStep="-1."'
             f' throatDia="{s.noz_thrt * 1000.0}">'
         ),

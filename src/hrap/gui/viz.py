@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QPolygonF
@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from hrap.layout import INCH, INJECTOR_L, PLATE_L, motor_layout
+from hrap.layout import INJECTOR_L, PLATE_L, motor_layout
+from hrap.units import DisplayUnits, LENGTH
 
 SPEC_GAP = 6.0
 SPEC_MIN_W = 56.0
@@ -82,6 +83,7 @@ class MotorView:
     vent_lines: tuple[str, ...] = ()
     overlay_tank: tuple[str, ...] = ()
     overlay_grain: tuple[str, ...] = ()
+    display_units: DisplayUnits = field(default_factory=DisplayUnits)
     time_s: float | None = None
     tnk_start: float = 0.0
     cmbr_start: float | None = None
@@ -189,10 +191,10 @@ def _geom(m: MotorView) -> _Geom:
     return g
 
 
-def _ruler_step(span_in: float) -> float:
-    if span_in <= 0:
+def _ruler_step(span: float) -> float:
+    if span <= 0:
         return 1.0
-    raw = span_in / 8.0
+    raw = span / 8.0
     mag = 10 ** math.floor(math.log10(raw)) if raw > 0 else 1.0
     for mult in (1.0, 2.0, 5.0, 10.0):
         if raw <= mult * mag:
@@ -200,12 +202,13 @@ def _ruler_step(span_in: float) -> float:
     return 10.0 * mag
 
 
-def _inch_tick_label(tick: float, *, with_unit: bool = False) -> str:
+def _tick_label(tick: float, step: float, unit: str = "") -> str:
     if abs(tick - round(tick)) < 1e-6:
         text = f"{int(round(tick))}"
     else:
-        text = f"{tick:.1f}"
-    return f"{text} in" if with_unit else text
+        decimals = max(0, -math.floor(math.log10(step)))
+        text = f"{tick:.{decimals}f}"
+    return f"{text} {unit}" if unit else text
 
 
 def liquid_rect(tank: QRectF, fill: float) -> QRectF:
@@ -447,7 +450,7 @@ class MotorVizWidget(QWidget):
         span_top = inner.top() + label_h + motor_h
         self._draw_span_labels(p, colors, g, X, m, QRectF(inner.left(), span_top, inner.width(), SPAN_H))
         ruler = QRectF(inner.left(), span_top + SPAN_H, inner.width(), RULER_H)
-        self._draw_ruler(p, colors, g, X, ruler)
+        self._draw_ruler(p, colors, g, X, ruler, m.display_units)
         p.setPen(_c(colors, "text"))
         p.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))
         p.drawText(
@@ -472,31 +475,32 @@ class MotorVizWidget(QWidget):
             p.setPen(QPen(_c(colors, "span"), 2.0))
             p.drawLine(QPointF(left, y + fm.height() + 3.0), QPointF(right, y + fm.height() + 3.0))
             p.setPen(_c(colors, "span"))
-            text = f"{title}  {mass_kg:.1f}kg"
+            text = f"{title}  {m.display_units.text(mass_kg, 'mass', 3)}"
             p.drawText(
                 QRectF(left, y, max(right - left, 8.0), fm.height() + 2.0),
                 int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
                 fm.elidedText(text, Qt.TextElideMode.ElideRight, max(int(right - left), 1)),
             )
 
-    def _draw_ruler(self, p: QPainter, colors: dict, g: _Geom, X, band: QRectF) -> None:
+    def _draw_ruler(self, p: QPainter, colors: dict, g: _Geom, X, band: QRectF, units: DisplayUnits) -> None:
         y = band.top() + 7.0
         x0, x1 = X(g.x_min), X(g.x_min + g.x_span)
         p.setPen(QPen(_c(colors, "ruler"), 1.0))
         p.drawLine(QPointF(x0, y), QPointF(x1, y))
-        start_in = g.x_min / INCH
-        end_in = (g.x_min + g.x_span) / INCH
-        step_in = _ruler_step(end_in - start_in)
+        scale = LENGTH[units.length]
+        start = g.x_min / scale
+        end = (g.x_min + g.x_span) / scale
+        step = _ruler_step(end - start)
         label_font = QFont("Segoe UI", 7)
         p.setFont(label_font)
         fm = QFontMetrics(label_font)
-        half = step_in / 2.0
-        first = math.ceil((start_in - 1e-9) / half) * half
+        half = step / 2.0
+        first = math.ceil((start - 1e-9) / half) * half
         majors: list[float] = []
         tick = first
-        while tick <= end_in + 1e-6:
-            xt = X(tick * INCH)
-            major = abs(tick / step_in - round(tick / step_in)) < 1e-6
+        while tick <= end + 1e-6:
+            xt = X(tick * scale)
+            major = abs(tick / step - round(tick / step)) < 1e-6
             h = 6.0 if major else 3.0
             p.setPen(QPen(_c(colors, "ruler"), 1.0))
             p.drawLine(QPointF(xt, y - h), QPointF(xt, y + h))
@@ -505,9 +509,9 @@ class MotorVizWidget(QWidget):
             tick += half
         p.setPen(_c(colors, "muted"))
         for i, tick in enumerate(majors):
-            label = _inch_tick_label(tick, with_unit=(i == len(majors) - 1))
+            label = _tick_label(tick, step, units.length if i == len(majors) - 1 else "")
             tw = fm.horizontalAdvance(label)
-            xt = X(tick * INCH)
+            xt = X(tick * scale)
             p.drawText(QPointF(xt - 0.5 * tw, y + 6.0 + fm.ascent() + 1.0), label)
 
     def _draw_specs(
