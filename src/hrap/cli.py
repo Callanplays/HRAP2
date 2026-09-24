@@ -76,5 +76,44 @@ def run_main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _linspace(text: str) -> np.ndarray:
+    lo, hi, n = text.split(":")
+    return np.linspace(float(lo), float(hi), int(n))
+
+
+def sweep_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Sweep nozzle throat diameter and injector Cd for a motor JSON.")
+    parser.add_argument("motor", type=Path)
+    parser.add_argument("--throat", required=True, type=_linspace, help="min:max:count, e.g. 0.3:0.6:7")
+    parser.add_argument("--throat-unit", default="in")
+    parser.add_argument("--cd", required=True, type=_linspace, help="min:max:count, e.g. 0.15:0.4:6")
+    parser.add_argument("--max-chamber", type=float, default=500.0, help="chamber pressure limit, psi absolute")
+    parser.add_argument("--max-dp", type=float, default=300.0,
+                        help="average injector dP above which HRAP's liquid-only injector model overpredicts flow, psi")
+    parser.add_argument("-o", "--output", type=Path, default=Path("HRAP_sweep.csv"))
+    args = parser.parse_args(argv)
+    from hrap.engine.sweep import sweep
+    from hrap.io.config import load_json, load_matlab_mat
+    from hrap.units import from_si, to_si
+
+    cfg = load_matlab_mat(args.motor) if args.motor.suffix.lower() == ".mat" else load_json(args.motor)
+    throats = [to_si(v, args.throat_unit, "length") for v in args.throat]
+    psi = lambda pa: from_si(pa, "psi", "pressure")
+    rows = []
+    for c in sweep(cfg, throats, args.cd):
+        flags = [f for f, bad in (("over_chamber_limit", psi(c.peak_P_cmbr) > args.max_chamber),
+                                  ("high_injector_dP", psi(c.avg_inj_dP) > args.max_dp)) if bad]
+        rows.append((from_si(c.throat, args.throat_unit, "length"), c.inj_Cd, psi(c.peak_P_cmbr),
+                     psi(c.avg_inj_dP), c.total_impulse, c.peak_thrust, c.burn_time, c.end_cond, " ".join(flags)))
+        print(f"throat {rows[-1][0]:.4g} {args.throat_unit}  Cd {c.inj_Cd:.3g}  "
+              f"Pc {rows[-1][2]:6.0f} psi  dP {rows[-1][3]:6.0f} psi  I {c.total_impulse:7.0f} N·s  {rows[-1][8]}")
+    header = (f"throat_{args.throat_unit},inj_Cd,peak_P_cmbr_psi,avg_inj_dP_psi,"
+              "total_impulse_Ns,peak_thrust_N,burn_time_s,end_cond,flags")
+    lines = [",".join(f"{v:.6g}" if isinstance(v, float) else str(v) for v in r) for r in rows]
+    args.output.write_text("\n".join([header, *lines]) + "\n", encoding="utf-8")
+    print(f"wrote {args.output}")
+    return 0
+
+
 if __name__ == "__main__":
     sys.exit(run_main())

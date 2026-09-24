@@ -49,6 +49,7 @@ from hrap.engine.sim import run
 from hrap.engine.types import Settings, State
 from hrap.engine.summary import format_summary, summarize
 from hrap.gui.theme import apply_theme
+from hrap.gui.sweep import SweepDialog
 from hrap.gui.viz import MotorPanel, MotorView, _vent_visible
 from hrap.io.config import bundled_motor, default_cfg, load_json, load_matlab_mat, resolve, resolve_layout, save_json
 from hrap.io.export import export_csv, export_eng, export_rse
@@ -381,9 +382,13 @@ class MainWindow(QMainWindow):
         self.run_btn = QPushButton("Run")
         self.run_btn.setObjectName("runButton")
         self.run_btn.clicked.connect(self._run)
+        self.sweep_btn = QPushButton("Sweep…")
+        self.sweep_btn.setToolTip("Run this motor across a range of throat diameters and injector Cds")
+        self.sweep_btn.clicked.connect(self._open_sweep)
         run_row.addWidget(QLabel("Motor Name"))
         run_row.addWidget(self.name, 1)
         run_row.addWidget(self.run_btn)
+        run_row.addWidget(self.sweep_btn)
         header_l.addLayout(run_row)
 
         io_row = QHBoxLayout()
@@ -1214,8 +1219,12 @@ class MainWindow(QMainWindow):
         self._thread.finished.connect(self._thread_finished)
         self._thread.start()
 
+    def _open_sweep(self):
+        SweepDialog(self._form_to_cfg(), self.display_units, self).exec()
+
     def _set_running(self, running: bool):
         self._form.setEnabled(not running)
+        self.sweep_btn.setEnabled(not running)
         self._file_menu.setEnabled(not running)
         self._examples_menu.setEnabled(not running)
 
