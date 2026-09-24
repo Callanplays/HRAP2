@@ -5,18 +5,22 @@ import math
 import os
 import sys
 import traceback
+from dataclasses import asdict
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, QEvent, QObject, QSettings, QThread, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFontDatabase, QIcon
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -34,6 +38,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStatusBar,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -41,6 +46,7 @@ from PySide6.QtWidgets import (
 from hrap import APP_NAME, __version__
 from hrap.engine.nox import nox
 from hrap.engine.sim import run
+from hrap.engine.types import Settings, State
 from hrap.engine.summary import format_summary, summarize
 from hrap.gui.theme import apply_theme
 from hrap.gui.viz import MotorPanel, MotorView, _vent_visible
@@ -50,6 +56,7 @@ from hrap.io.propellant import list_propellants, load_propellant
 from hrap.layout import motor_layout
 from hrap.units import (
     DENSITY_ITEMS,
+    DisplayUnits,
     LENGTH_ITEMS,
     MASS_ITEMS,
     PRESSURE_ITEMS,
@@ -61,21 +68,35 @@ from hrap.units import (
     to_si,
 )
 
+# Label, output field, physical quantity. Engine arrays remain in SI units.
 TRACES = [
-    ("Thrust", "F_thr", "N"),
-    ("Tank pressure", "P_tnk", "Pa"),
-    ("Chamber pressure", "P_cmbr", "Pa"),
-    ("O/F", "OF", "—"),
-    ("Oxidizer mdot", "mdot_o", "kg/s"),
-    ("Fuel mdot", "mdot_f", "kg/s"),
-    ("Nozzle mdot", "mdot_n", "kg/s"),
-    ("Regression rate", "rdot", "m/s"),
-    ("Port ID", "grn_ID", "m"),
-    ("Oxidizer mass", "m_o", "kg"),
-    ("Fuel mass", "m_f", "kg"),
-    ("Total mass", "m_t", "kg"),
-    ("CG", "cg", "m"),
+    ("Thrust", "F_thr", "force"),
+    ("Tank pressure", "P_tnk", "pressure"),
+    ("Chamber pressure", "P_cmbr", "pressure"),
+    ("O/F", "OF", "ratio"),
+    ("Oxidizer flow", "mdot_o", "mass_flow"),
+    ("Fuel flow", "mdot_f", "mass_flow"),
+    ("Nozzle flow", "mdot_n", "mass_flow"),
+    ("Regression rate", "rdot", "speed"),
+    ("Port ID", "grn_ID", "length"),
+    ("Oxidizer mass", "m_o", "mass"),
+    ("Fuel mass", "m_f", "mass"),
+    ("Total mass", "m_t", "mass"),
+    ("CG", "cg", "length"),
 ]
+PLOT_LABELS = {
+    "force": "Thrust", "pressure": "Pressure (absolute)", "ratio": "O/F",
+    "mass_flow": "Mass flow", "speed": "Regression rate", "length": "Length", "mass": "Mass",
+}
+DISPLAY_UNIT_OPTIONS = {
+    "pressure": ["psi", "bar", "kPa", "MPa", "Pa", "atm"],
+    "length": LENGTH_ITEMS,
+    "mass": MASS_ITEMS,
+    "force": ["N", "kN", "lbf"],
+    "volume": VOLUME_ITEMS,
+    "temperature": TEMP_ITEMS,
+    "speed": ["m/s", "mm/s", "in/s", "ft/s"],
+}
 
 
 def _t_sat(P: float) -> float | None:
@@ -86,7 +107,7 @@ def _t_sat(P: float) -> float | None:
     if not math.isfinite(P) or P <= 1.0 or P >= 7.2e6:
         return None
     try:
-        return float(brentq(lambda T: vapor_pressure(T) - P, 183.15, TC - 0.05, xtol=1e-4))
+        return cast(float, brentq(lambda T: vapor_pressure(T) - P, 183.15, TC - 0.05, xtol=1e-4))
     except Exception:
         return None
 
@@ -96,7 +117,7 @@ class _NoWheel:
 
     def wheelEvent(self, event):
         event.ignore()
-        parent = self.parentWidget()
+        parent = cast(QWidget, self).parentWidget()
         while parent is not None:
             if isinstance(parent, QScrollArea):
                 QApplication.sendEvent(parent.viewport(), event)
@@ -202,7 +223,7 @@ class UnitRow(QWidget):
 
 
 def _remember_unit(combo: QComboBox, unit: str | None = None) -> None:
-    combo._hrap_unit = combo.currentText() if unit is None else unit
+    combo.setProperty("hrap_unit", combo.currentText() if unit is None else unit)
 
 
 def _set_unit_text(combo: QComboBox, unit: str) -> None:
@@ -218,7 +239,7 @@ def _wire_unit_combo(spin: QDoubleSpinBox, combo: QComboBox, group: str | None =
     _remember_unit(combo)
 
     def _on_unit(new_unit: str):
-        old = getattr(combo, "_hrap_unit", new_unit)
+        old = combo.property("hrap_unit") or new_unit
         _remember_unit(combo, new_unit)
         if not old or old == new_unit:
             return
@@ -242,14 +263,13 @@ class SimWorker(QObject):
     failed = Signal(str)
     progress = Signal(int, int)
 
-    def __init__(self, cfg: dict, sat_props=None):
+    def __init__(self, cfg: dict):
         super().__init__()
         self.cfg = cfg
-        self.sat_props = sat_props
 
     def run(self):
         try:
-            s, x = resolve(self.cfg, get_sat_props=self.sat_props)
+            s, x = resolve(self.cfg)
             x, o = run(s, x, on_progress=self.progress.emit)
             self.finished.emit(s, x, o)
         except Exception:
@@ -268,15 +288,32 @@ class MainWindow(QMainWindow):
         self._theme = "dark"
         self._thread = None
         self._worker = None
+        self._close_when_finished = False
+        self._result_cfg = None
         self._hover_index = None
         self._prefs = QSettings("HCAT", APP_NAME)
+        defaults = asdict(DisplayUnits())
+        saved = {key: str(self._prefs.value(f"displayUnits/{key}", default))
+                 for key, default in defaults.items()}
+        self.display_units = DisplayUnits(**{
+            key: unit if unit in DISPLAY_UNIT_OPTIONS[key] else defaults[key]
+            for key, unit in saved.items()
+        })
         self._last_dir = str(self._prefs.value("lastFileDir") or "")
         self._build()
         self._cfg_to_form(self.cfg)
         self._connect_derived()
+        for control_type, signal in (
+            (QDoubleSpinBox, "valueChanged"), (QSpinBox, "valueChanged"),
+            (QComboBox, "currentIndexChanged"), (QCheckBox, "toggled"),
+        ):
+            for control in self._form.findChildren(control_type):
+                getattr(control, signal).connect(self._invalidate_results)
+        self.name.textChanged.connect(self._invalidate_results)
+        self.mfg.textChanged.connect(self._invalidate_results)
 
     def _build(self):
-        file_menu = self.menuBar().addMenu("&File")
+        file_menu = self._file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction("New", self._new)
         file_menu.addAction("Open JSON…", self._open_json)
         file_menu.addAction("Import MATLAB .mat…", self._import_mat)
@@ -288,7 +325,7 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction("Quit", self.close)
 
-        ex_menu = self.menuBar().addMenu("&Examples")
+        ex_menu = self._examples_menu = self.menuBar().addMenu("&Examples")
         ex_menu.addAction("example_98mm (const O/F, ABS)", lambda: self._load_bundled("example_98mm"))
         ex_menu.addAction("Rattworks K240 (const O/F, HDPE)", lambda: self._load_bundled("Rattworks_K240"))
 
@@ -296,11 +333,15 @@ class MainWindow(QMainWindow):
         view_menu.addAction("Dark theme", lambda: self._set_theme("dark"))
         view_menu.addAction("Light theme", lambda: self._set_theme("light"))
 
+        settings_menu = self.menuBar().addMenu("&Settings")
+        settings_menu.addAction("Units…", self._choose_display_units)
+
         help_menu = self.menuBar().addMenu("&Help")
         help_menu.addAction(f"About {APP_NAME}", self._about)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self._make_form())
+        self._form = self._make_form()
+        splitter.addWidget(self._form)
         splitter.addWidget(self._make_results())
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -549,30 +590,36 @@ class MainWindow(QMainWindow):
         box = QWidget()
         layout = QVBoxLayout(box)
         mid = QSplitter(Qt.Orientation.Horizontal)
-        self.plot = pg.PlotWidget()
-        self.plot.showGrid(x=True, y=True, alpha=0.25)
-        self.plot.addLegend()
-        self._install_hover_overlay()
-        self.plot.scene().sigMouseMoved.connect(self._mouse_moved)
-        self.plot.installEventFilter(self)
-        self.curves = {}
+        self.plot = QTabWidget()
+        self._plots: dict[str, pg.PlotItem] = {}
+        self._plot_widgets: dict[str, pg.PlotWidget] = {}
+        self._hover_lines: list[pg.InfiniteLine] = []
+        self._plot_viewports: list[QWidget] = []
+        self._plotted_output = None
+        self._syncing_time = False
+        self._time_range = (0.0, 1.0)
+        self.plot.currentChanged.connect(lambda _: self._reset_viz_to_start())
+        self.plot_readout = QLabel("Run a simulation, then hover over a plot to inspect a time.")
+        self.plot_readout.setWordWrap(True)
+        self.plot_readout.setMinimumHeight(36)
         self.trace_list = QListWidget()
-        for i, (label, _key, _u) in enumerate(TRACES):
+        for i, (label, _key, _quantity) in enumerate(TRACES):
             item = QListWidgetItem(label)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked if i < 3 else Qt.CheckState.Unchecked)
+            item.setCheckState(Qt.CheckState.Checked if i < 3 or 4 <= i <= 6 else Qt.CheckState.Unchecked)
             self.trace_list.addItem(item)
         self.trace_list.itemChanged.connect(lambda *_: self._refresh_plot())
         mid.addWidget(self.trace_list)
         mid.addWidget(self.plot)
         mid.setSizes([160, 600])
         layout.addWidget(mid, 3)
+        layout.addWidget(self.plot_readout)
         self.motor_panel = MotorPanel()
         self.viz = self.motor_panel.viz
         layout.addWidget(self.motor_panel)
         self.summary = QPlainTextEdit()
         self.summary.setReadOnly(True)
-        self.summary.setFont(QFont("Consolas", 10))
+        self.summary.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         layout.addWidget(self.summary, 2)
         return box
 
@@ -670,6 +717,7 @@ class MainWindow(QMainWindow):
 
     def _cfg_to_form(self, cfg: dict):
         self.name.setText(str(cfg.get("mtr_nm") or ""))
+        self.mfg.setText(str(cfg.get("mfg") or "HRAP"))
         self.tnk_V.set_display(cfg.get("tnk_V", 0), cfg.get("tnk_V_unit", "cm^3"))
         self.tnk_D.set_display(cfg.get("tnk_D", 0), cfg.get("tnk_D_unit", "in"))
         self.tnk_L.set_display(cfg.get("tnk_L", 0), cfg.get("tnk_L_unit", "in"))
@@ -797,7 +845,7 @@ class MainWindow(QMainWindow):
     def _update_derived_labels(self):
         D = to_si(self.inj_D.spin.value(), self.inj_D.unit.currentText(), "length")
         cda = 0.25 * math.pi * D ** 2 * self.inj_Cd.value() * self.inj_N.value()
-        self.inj_cda.setText(f"{cda:.4e} m²")
+        self.inj_cda.setText(self.display_units.text(cda, "area"))
         if self.tnk_by_dims.isChecked():
             d = to_si(self.tnk_D.spin.value(), self.tnk_D.unit.currentText(), "length")
             L = to_si(self.tnk_L.spin.value(), self.tnk_L.unit.currentText(), "length")
@@ -828,7 +876,9 @@ class MainWindow(QMainWindow):
                     fill = self.fill.value() / 100.0
                     m_o = fill * V * ox.rho_l + (1.0 - fill) * V * ox.rho_v
             self.sat_info.setText(
-                f"Saturation: T={T:.2f} K, P={ox.Pv/1e5:.2f} bar, ox mass={m_o:.3f} kg"
+                f"Saturation: T={self.display_units.text(T, 'temperature')}, "
+                f"P={self.display_units.text(ox.Pv, 'pressure')} (absolute), "
+                f"ox mass={self.display_units.text(m_o, 'mass')}"
             )
         except Exception:
             self.sat_info.setText("Saturation: (out of N2O fit range)")
@@ -837,9 +887,9 @@ class MainWindow(QMainWindow):
             empty_m, empty_cg = self._empty_mass_si(lay)
             unit = self.tnk_start.unit.currentText()
             self.mass_info.setText(
-                f"Empty mass {empty_m:.3f} kg at CG {from_si(empty_cg, unit, 'length'):.2f} {unit}. "
-                f"Overall length {from_si(lay.overall_L, unit, 'length'):.2f} {unit} "
-                f"(tank L {from_si(lay.tnk_L, unit, 'length'):.2f} {unit})."
+                f"Empty mass {self.display_units.text(empty_m, 'mass')} at CG {self.display_units.text(empty_cg, 'length')}. "
+                f"Overall length {self.display_units.text(lay.overall_L, 'length')} "
+                f"(tank L {self.display_units.text(lay.tnk_L, 'length')})."
             )
             if not self.dry_OD.spin.hasFocus():
                 self.dry_OD.set_display(from_si(lay.overall_OD, self.dry_OD.unit.currentText(), "length"))
@@ -980,49 +1030,46 @@ class MainWindow(QMainWindow):
             thrust = float(o.F_thr[i])
             P_cmbr = float(o.P_cmbr[i])
 
-        def inch(si: float) -> float:
-            return from_si(si, "in", "length")
+        u = self.display_units
+        def size(diameter: float, length: float) -> str:
+            return f"Ø{u.value(diameter, 'length'):.3g} × {u.text(length, 'length', 3)}"
 
         mass_pct = 100.0 * m_f / m_f0 if m_f0 > 1e-12 else 0.0
         dp_inj = P_tnk - P_cmbr
-        dp_psi = from_si(dp_inj, "psi", "pressure")
         stiff = (dp_inj / P_cmbr) if P_cmbr > 1e-9 else 0.0
         vnt_on = _vent_visible(vnt, vnt_D)
-        vent_lines = (
-            "Orifice Vent",
-            f"Ø{inch(vnt_D):.3f} in",
-        ) if vnt_on else ()
+        vent_lines = ("Orifice Vent", f"Ø{u.text(vnt_D, 'length', 3)}") if vnt_on else ()
         tank_lines = (
             "Oxidizer Tank",
-            f"size: Ø{inch(tnk_D):.2f} x {inch(tnk_L):.2f} in",
-            f"volume: {from_si(tnk_V, 'L', 'volume'):.1f} L",
-            f"mass = {m_o:.1f} kg ({100.0 * fill:.0f}%)",
-            f"T = {T:.1f} K",
+            f"size: {size(tnk_D, tnk_L)}",
+            f"volume: {u.text(tnk_V, 'volume')}",
+            f"mass = {u.text(m_o, 'mass')} ({100.0 * fill:.0f}%)",
+            f"T = {u.text(T, 'temperature')}",
         )
         inj_lines = (
             "Injectors",
-            f"{inj_N} x Ø{inch(inj_D):.2f} in",
+            f"{inj_N} × Ø{u.text(inj_D, 'length', 3)}",
             f"Cd: {inj_Cd:.2f}",
-            f"A: {from_si(inj_A, 'in2', 'area'):.4f} in^2",
-            f"ox_mdot = {ox_mdot:.2f} kg/s",
-            f"dP = {dp_psi:.0f} psi",
+            f"A: {u.text(inj_A, 'area')}",
+            f"ox flow = {u.text(ox_mdot, 'mass_flow', 3)}",
+            f"ΔP = {u.text(dp_inj, 'pressure')}",
             f"stiffness = {100.0 * stiff:.0f}%",
         )
         grain_lines = (
             "Fuel Grain",
-            f"size: Ø{inch(grn_OD):.2f} x {inch(grn_L):.2f} in",
-            f"port = {inch(grn_ID):.2f} in",
-            f"mass = {m_f:.1f} kg ({mass_pct:.0f}%)",
-            f"fuel_mdot = {fuel_mdot:.2f} kg/s",
+            f"size: {size(grn_OD, grn_L)}",
+            f"port = {u.text(grn_ID, 'length')}",
+            f"mass = {u.text(m_f, 'mass')} ({mass_pct:.0f}%)",
+            f"fuel flow = {u.text(fuel_mdot, 'mass_flow', 3)}",
         )
         noz_lines = (
             "Nozzle",
-            f"throat: Ø{inch(th):.2f} in",
-            f"exit: Ø{inch(exit_d):.2f} in",
+            f"throat: Ø{u.text(th, 'length')}",
+            f"exit: Ø{u.text(exit_d, 'length')}",
             f"expansion ratio: {er:.2f}",
             f"O/F = {of_ratio:.2f}",
-            f"mdot = {noz_mdot:.2f} kg/s",
-            f"thrust = {thrust:.1f} N",
+            f"flow = {u.text(noz_mdot, 'mass_flow', 3)}",
+            f"thrust = {u.text(thrust, 'force')}",
         )
 
         lay = self._form_layout()
@@ -1052,13 +1099,14 @@ class MainWindow(QMainWindow):
             vent_lines=vent_lines,
             overlay_tank=(
                 f"{100.0 * fill:.0f}%",
-                f"{from_si(P_tnk, 'psi', 'pressure'):.0f} psi",
+                u.text(P_tnk, "pressure"),
             ),
             overlay_grain=(
                 f"{mass_pct:.0f}%",
-                f"{from_si(P_cmbr, 'psi', 'pressure'):.0f} psi",
+                u.text(P_cmbr, "pressure"),
             ),
             time_s=time_s,
+            display_units=u,
         )
 
     def _refresh_viz(self):
@@ -1067,46 +1115,42 @@ class MainWindow(QMainWindow):
         self.motor_panel.set_model(self._motor_view(self._hover_index))
 
     def _reset_viz_to_start(self):
-        if hasattr(self, "hover"):
-            self.hover.setText("")
-        if getattr(self, "hover_line", None) is not None:
-            self.hover_line.setVisible(False)
+        for line in self._hover_lines:
+            line.setVisible(False)
+        self.plot_readout.setText("Hover over a plot to inspect a time.")
         if self._hover_index is None:
             return
         self._hover_index = None
         self._refresh_viz()
 
     def eventFilter(self, obj, event):
-        if obj is getattr(self, "plot", None) and event.type() == QEvent.Type.Leave:
+        if event.type() == QEvent.Type.Leave and obj in self._plot_viewports:
             self._reset_viz_to_start()
         return super().eventFilter(obj, event)
 
-    def _mouse_moved(self, pos):
+    def _mouse_moved(self, quantity: str, pos):
         if self._output is None:
             return
-        vb = self.plot.getPlotItem().vb
+        plot = self._plots[quantity]
+        vb = cast(pg.ViewBox, plot.vb)
         if not vb.sceneBoundingRect().contains(pos):
             self._reset_viz_to_start()
             return
         x = vb.mapSceneToView(pos).x()
-        if getattr(self, "hover_line", None) is not None:
-            self.hover_line.setValue(x)
-            self.hover_line.setVisible(True)
         t = np.asarray(self._output.t)
         if t.size == 0:
             return
         i = int(np.clip(np.searchsorted(t, x), 0, t.size - 1))
-        bits = [f"t={t[i]:.4f}s"]
-        for k, (label, key, unit) in enumerate(TRACES):
-            item = self.trace_list.item(k)
-            if item.checkState() != Qt.CheckState.Checked:
+        for line in self._hover_lines:
+            line.setValue(t[i])
+            line.setVisible(True)
+        bits = [f"Time: {t[i]:.3f} s"]
+        for k, (label, key, trace_quantity) in enumerate(TRACES):
+            if trace_quantity != quantity or self.trace_list.item(k).checkState() != Qt.CheckState.Checked:
                 continue
-            arr = getattr(self._output, key, None)
-            if arr is None:
-                continue
-            bits.append(f"{label}={float(arr[i]):.4g} {unit}")
-        self.hover.setText("\n".join(bits), color="#e6e8ee")
-        self.hover.setPos(t[i], vb.mapSceneToView(pos).y())
+            value = float(getattr(self._output, key)[i])
+            bits.append(f"{label}: {self.display_units.text(value, quantity)}")
+        self.plot_readout.setText("   ·   ".join(bits))
         self._refresh_viz_at(i)
 
     def _refresh_viz_at(self, index: int | None):
@@ -1121,6 +1165,16 @@ class MainWindow(QMainWindow):
         self.summary.clear()
         self._clear_plot()
         self._refresh_viz()
+
+    def _invalidate_results(self):
+        if self._output is None:
+            return
+        self._output = self._settings = self._state = self._result_cfg = None
+        self._hover_index = None
+        self.summary.clear()
+        self._clear_plot()
+        self._refresh_viz()
+        self.statusBar().showMessage("Inputs changed — run again to update results.")
 
     def _on_propellant(self):
         ident = self.prop_combo.currentData()
@@ -1137,31 +1191,18 @@ class MainWindow(QMainWindow):
         if p.opt_OF:
             self.const_OF.setValue(float(p.opt_OF))
 
-    def _sat_props(self):
-        if not self.adv_on.isChecked():
-            return None
-        choice = self.ox_fluid.currentText()
-        if choice.startswith("N2O_legacy"):
-            return None
-        try:
-            from hrap.advanced.fluid import coolprop_sat
-        except Exception as exc:
-            QMessageBox.warning(self, "Advanced fluid", f"CoolProp is not available:\n{exc}")
-            return None
-        fluid = "NitrousOxide" if "Nitrous" in choice else "Oxygen"
-        return coolprop_sat(fluid)
-
     def _run(self):
-        if self._thread is not None and self._thread.isRunning():
+        if self._thread is not None:
             return
         self.cfg = self._form_to_cfg()
+        self._running_cfg = self.cfg
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
         self._progress.show()
-        self.run_btn.setEnabled(False)
-        self.statusBar().showMessage("Running MATLAB-parity simulation…")
+        self._set_running(True)
+        self.statusBar().showMessage("Running simulation…")
         self._thread = QThread()
-        self._worker = SimWorker(self.cfg, self._sat_props())
+        self._worker = SimWorker(self.cfg)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self._on_progress)
@@ -1169,29 +1210,55 @@ class MainWindow(QMainWindow):
         self._worker.failed.connect(self._on_failed)
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
-        self._thread.finished.connect(lambda: self.run_btn.setEnabled(True))
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread_finished)
         self._thread.start()
+
+    def _set_running(self, running: bool):
+        self._form.setEnabled(not running)
+        self._file_menu.setEnabled(not running)
+        self._examples_menu.setEnabled(not running)
+
+    def _thread_finished(self):
+        thread = cast(QThread, self._thread)
+        # finished can arrive before deferred worker deletion has completed.
+        # Join here (after finished) before Qt destroys the thread object.
+        thread.wait()
+        thread.deleteLater()
+        self._thread = None
+        self._worker = None
+        self._set_running(False)
+        if self._close_when_finished:
+            self.close()
+
+    def closeEvent(self, event):
+        if self._thread is not None:
+            self._close_when_finished = True
+            self.statusBar().showMessage("Closing when the current simulation finishes…")
+            event.ignore()
+        else:
+            event.accept()
 
     def _on_progress(self, i: int, n: int):
         n = max(int(n), 1)
         self._progress.setRange(0, n)
         self._progress.setValue(min(int(i), n))
-        self.statusBar().showMessage(f"Running MATLAB-parity simulation… {100.0 * i / n:.0f}%")
+        self.statusBar().showMessage(f"Running simulation… {100.0 * i / n:.0f}%")
 
     def _stop_progress(self):
         self._progress.hide()
         self._progress.setValue(0)
-        self.run_btn.setEnabled(True)
 
     def _on_finished(self, s, x, o):
         self._settings, self._state, self._output = s, x, o
+        self._result_cfg = self._running_cfg
         self._hover_index = None
         info = summarize(s, x, o)
-        self.summary.setPlainText(format_summary(info))
+        self.summary.setPlainText(format_summary(info, self.display_units))
         self._refresh_plot()
         self._refresh_viz()
         self._stop_progress()
-        self.statusBar().showMessage(f"Done — {o.sim_end_cond}  Itot={info['total_impulse']:.1f} N·s")
+        self.statusBar().showMessage(f"Done — {o.sim_end_cond}  Total impulse: {self.display_units.text(info['total_impulse'], 'impulse')}")
 
     def _on_failed(self, msg: str):
         self._stop_progress()
@@ -1202,38 +1269,91 @@ class MainWindow(QMainWindow):
         accent = "#5b8def" if getattr(self, "_theme", "dark") != "light" else "#2f5fbf"
         return pg.mkPen(accent, width=1, style=Qt.PenStyle.DashLine)
 
-    def _install_hover_overlay(self):
-        fg = "#e6e8ee" if getattr(self, "_theme", "dark") != "light" else "#1b1d21"
-        self.hover = pg.TextItem("", anchor=(0, 1), color=fg)
-        self.plot.addItem(self.hover)
-        self.hover_line = pg.InfiniteLine(angle=90, movable=False, pen=self._hover_line_pen())
-        self.hover_line.setVisible(False)
-        self.hover_line.setZValue(100)
-        self.plot.addItem(self.hover_line, ignoreBounds=True)
-
     def _clear_plot(self):
+        self._plots.clear()
+        self._hover_lines.clear()
+        self._plot_viewports.clear()
+        self._plotted_output = None
         self.plot.clear()
-        self._install_hover_overlay()
+        for widget in self._plot_widgets.values():
+            widget.deleteLater()
+        self._plot_widgets.clear()
+        self.plot_readout.setText("Run a simulation, then hover over a plot to inspect a time.")
+
+    def _sync_time_range(self, _view, time_range):
+        if self._syncing_time:
+            return
+        self._time_range = tuple(time_range)
+        self._syncing_time = True
+        try:
+            for plot in self._plots.values():
+                cast(pg.ViewBox, plot.vb).setXRange(*self._time_range, padding=0)
+        finally:
+            self._syncing_time = False
 
     def _refresh_plot(self):
         o = self._output
         if o is None:
             return
+        current = self.plot.currentWidget()
+        active_quantity = next((q for q, widget in self._plot_widgets.items() if widget is current), None)
+        if self._plotted_output is not o:
+            self._time_range = (float(o.t[0]), float(o.t[-1]))
         self._clear_plot()
-        self.plot.addLegend()
         palette = ["#5b8def", "#f0c14b", "#e06c75", "#98c379", "#c678dd", "#56b6c2", "#d19a66", "#abb2bf"]
-        color_i = 0
-        for i, (label, key, unit) in enumerate(TRACES):
-            item = self.trace_list.item(i)
-            if item.checkState() != Qt.CheckState.Checked:
+        for i, (label, key, quantity) in enumerate(TRACES):
+            if self.trace_list.item(i).checkState() != Qt.CheckState.Checked:
                 continue
-            arr = getattr(o, key, None)
-            if arr is None:
-                continue
-            pen = pg.mkPen(palette[color_i % len(palette)], width=2)
-            self.plot.plot(o.t, np.asarray(arr, dtype=float), pen=pen, name=f"{label} [{unit}]")
-            color_i += 1
-        self.plot.setLabel("bottom", "Time", units="s")
+            unit = self.display_units.unit(quantity)
+            if quantity not in self._plots:
+                widget = pg.PlotWidget()
+                plot = cast(pg.PlotItem, widget.getPlotItem())
+                plot.showGrid(x=True, y=True, alpha=0.25)
+                plot.addLegend(offset=(-10, 5))
+                plot.setLabel("left", PLOT_LABELS[quantity], units=unit)
+                plot.getAxis("left").enableAutoSIPrefix(False)
+                plot.getAxis("left").setWidth(100)
+                plot.setLabel("bottom", "Time", units="s")
+                self._plots[quantity] = plot
+                self._plot_widgets[quantity] = widget
+                self.plot.addTab(widget, PLOT_LABELS[quantity].replace(" (absolute)", ""))
+                viewport = widget.viewport()
+                self._plot_viewports.append(viewport)
+                viewport.installEventFilter(self)
+                cast(pg.GraphicsScene, widget.scene()).sigMouseMoved.connect(
+                    lambda pos, q=quantity: self._mouse_moved(q, pos))
+                line = pg.InfiniteLine(angle=90, movable=False, pen=self._hover_line_pen())
+                line.setVisible(False)
+                plot.addItem(line, ignoreBounds=True)
+                self._hover_lines.append(line)
+            pen = pg.mkPen(palette[i % len(palette)], width=2)
+            self._plots[quantity].plot(o.t, np.asarray(getattr(o, key), dtype=float) * self.display_units.value(1.0, quantity),
+                                      pen=pen, name=label)
+        for plot in self._plots.values():
+            vb = cast(pg.ViewBox, plot.vb)
+            vb.setXRange(*self._time_range, padding=0)
+            vb.sigXRangeChanged.connect(self._sync_time_range)
+        if active_quantity in self._plot_widgets:
+            self.plot.setCurrentWidget(self._plot_widgets[active_quantity])
+        self._plotted_output = o
+        self.plot_readout.setText("Hover over a plot to inspect a time." if self._plots
+                                 else "Select a quantity from the list to display its plot.")
+        self._style_plots()
+
+    def _style_plots(self):
+        dark = getattr(self, "_theme", "dark") == "dark"
+        fg = "#e6e8ee" if dark else "#1b1d21"
+        for widget in self._plot_widgets.values():
+            widget.setBackground("#1a1d23" if dark else "#ffffff")
+        for plot in self._plots.values():
+            for side in ("left", "bottom"):
+                axis = plot.getAxis(side)
+                axis.setPen(fg)
+                axis.setTextPen(fg)
+                axis.setLabel(text=axis.labelText, units=axis.labelUnits, **{"color": fg})
+            cast(pg.LegendItem, plot.legend).setLabelTextColor(fg)
+        for line in self._hover_lines:
+            line.setPen(self._hover_line_pen())
 
     def _new(self):
         self._output = None
@@ -1296,15 +1416,14 @@ class MainWindow(QMainWindow):
         if self._output is None or self._settings is None:
             QMessageBox.information(self, "Export", "Run a simulation first.")
             return
-        cfg = self._form_to_cfg()
-        dry_m, dry_cg = self._empty_mass_si()
+        cfg = cast(dict, self._result_cfg)
         if kind == "csv":
             path, _ = QFileDialog.getSaveFileName(self, "Export CSV", self._dialog_path("HRAP_output.csv"), "CSV (*.csv)")
             if path:
                 self._remember_file_dir(path)
                 export_csv(path, self._output, self._settings)
         elif kind == "rse":
-            stem = (self.name.text() or "motor").strip() or "motor"
+            stem = cfg["mtr_nm"].strip() or "motor"
             path, _ = QFileDialog.getSaveFileName(self, "Export RSE", self._dialog_path(f"{stem}.rse"), "RSE (*.rse)")
             if path:
                 self._remember_file_dir(path)
@@ -1315,8 +1434,6 @@ class MainWindow(QMainWindow):
                     OD=cfg["export_OD"],
                     L=cfg["export_L"],
                     mfg=cfg["mfg"],
-                    dry_mass=dry_m,
-                    dry_cg=dry_cg,
                 )
         else:
             path, _ = QFileDialog.getSaveFileName(self, "Export ENG", self._dialog_path("motor.eng"), "ENG (*.eng)")
@@ -1329,22 +1446,49 @@ class MainWindow(QMainWindow):
                     OD=cfg["export_OD"],
                     L=cfg["export_L"],
                     mfg=cfg["mfg"],
-                    dry_mass=dry_m,
-                    dry_cg=dry_cg,
                 )
+
+    def _choose_display_units(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Display units")
+        layout = QVBoxLayout(dialog)
+        note = QLabel("Used in plots, the motor diagram, and results.\n"
+                      "Input fields keep their own labeled unit selectors.\n"
+                      "Pressure is absolute; injector ΔP is a pressure difference.")
+        layout.addWidget(note)
+        form = QFormLayout()
+        controls = {}
+        for quantity, choices in DISPLAY_UNIT_OPTIONS.items():
+            combo = QComboBox()
+            combo.addItems(choices)
+            combo.setCurrentText(getattr(self.display_units, quantity))
+            controls[quantity] = combo
+            form.addRow(quantity.capitalize(), combo)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._set_display_units(DisplayUnits(**{key: combo.currentText() for key, combo in controls.items()}))
+
+    def _set_display_units(self, units: DisplayUnits):
+        self.display_units = units
+        for key, unit in asdict(units).items():
+            self._prefs.setValue(f"displayUnits/{key}", unit)
+        self._refresh_plot()
+        self._update_derived_labels()
+        if self._output is not None:
+            info = summarize(cast(Settings, self._settings), cast(State, self._state), self._output)
+            self.summary.setPlainText(format_summary(info, units))
+            self.statusBar().showMessage(f"Done — {self._output.sim_end_cond}  Total impulse: {units.text(info['total_impulse'], 'impulse')}")
 
     def _set_theme(self, name: str):
         self._theme = name
-        apply_theme(QApplication.instance(), name)
-        bg = "#1a1d23" if name == "dark" else "#ffffff"
-        fg = "#e6e8ee" if name == "dark" else "#1b1d21"
-        self.plot.setBackground(bg)
-        self.plot.getAxis("bottom").setPen(fg)
-        self.plot.getAxis("left").setPen(fg)
+        apply_theme(cast(QApplication, QApplication.instance()), name)
+        self._style_plots()
         if hasattr(self, "motor_panel"):
             self.motor_panel.set_theme(name)
-        if getattr(self, "hover_line", None) is not None:
-            self.hover_line.setPen(self._hover_line_pen())
 
     def _about(self):
         QMessageBox.about(
@@ -1383,6 +1527,7 @@ def main():
         app = QApplication(sys.argv)
         app.setApplicationName(APP_NAME)
         app.setApplicationVersion(__version__)
+        app.setWindowIcon(QIcon(str(Path(__file__).resolve().parents[1] / "resources" / "icon.ico")))
         apply_theme(app, "dark")
         pg.setConfigOptions(antialias=True, background="#1a1d23", foreground="#e6e8ee")
         win = MainWindow()
