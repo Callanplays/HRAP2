@@ -92,25 +92,35 @@ def sweep_main(argv: list[str] | None = None) -> int:
                         help="average injector dP above which HRAP's liquid-only injector model overpredicts flow, psi")
     parser.add_argument("-o", "--output", type=Path, default=Path("HRAP_sweep.csv"))
     args = parser.parse_args(argv)
-    from hrap.engine.sweep import sweep
+    from hrap.engine.sweep import passing_throats, sweep
     from hrap.io.config import load_json, load_matlab_mat
     from hrap.units import from_si, to_si
 
     cfg = load_matlab_mat(args.motor) if args.motor.suffix.lower() == ".mat" else load_json(args.motor)
     throats = [to_si(v, args.throat_unit, "length") for v in args.throat]
     psi = lambda pa: from_si(pa, "psi", "pressure")
-    rows = []
+    unit = lambda m: from_si(m, args.throat_unit, "length")
+    total = len(throats) * len(args.cd)
+    cases = []
     for c in sweep(cfg, throats, args.cd):
-        flags = [f for f, bad in (("over_chamber_limit", psi(c.peak_P_cmbr) > args.max_chamber),
-                                  ("high_injector_dP", psi(c.avg_inj_dP) > args.max_dp)) if bad]
-        rows.append((from_si(c.throat, args.throat_unit, "length"), c.inj_Cd, psi(c.peak_P_cmbr),
-                     psi(c.avg_inj_dP), c.total_impulse, c.peak_thrust, c.burn_time, c.end_cond, " ".join(flags)))
-        print(f"throat {rows[-1][0]:.4g} {args.throat_unit}  Cd {c.inj_Cd:.3g}  "
-              f"Pc {rows[-1][2]:6.0f} psi  dP {rows[-1][3]:6.0f} psi  I {c.total_impulse:7.0f} N·s  {rows[-1][8]}")
+        cases.append(c)
+        print(f"\r{len(cases)}/{total} cases", end="", flush=True)
+    print()
+    cases.sort(key=lambda c: (c.throat, c.inj_Cd))
     header = (f"throat_{args.throat_unit},inj_Cd,peak_P_cmbr_psi,avg_inj_dP_psi,"
               "total_impulse_Ns,peak_thrust_N,burn_time_s,end_cond,flags")
-    lines = [",".join(f"{v:.6g}" if isinstance(v, float) else str(v) for v in r) for r in rows]
-    args.output.write_text("\n".join([header, *lines]) + "\n", encoding="utf-8")
+    lines = [header]
+    for c in cases:
+        flags = [f for f, bad in (("over_chamber_limit", psi(c.peak_P_cmbr) > args.max_chamber),
+                                  ("high_injector_dP", psi(c.avg_inj_dP) > args.max_dp)) if bad]
+        lines.append(f"{unit(c.throat):.6g},{c.inj_Cd:.6g},{psi(c.peak_P_cmbr):.6g},{psi(c.avg_inj_dP):.6g},"
+                     f"{c.total_impulse:.6g},{c.peak_thrust:.6g},{c.burn_time:.6g},{c.end_cond},{' '.join(flags)}")
+    args.output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ok = passing_throats(cases, to_si(args.max_chamber, "psi", "pressure"), to_si(args.max_dp, "psi", "pressure"))
+    if ok:
+        print(f"Throats under both limits for every Cd: {', '.join(f'{unit(t):.4g}' for t in ok)} {args.throat_unit}")
+    else:
+        print("No throat in this range stays under both limits for every Cd.")
     print(f"wrote {args.output}")
     return 0
 

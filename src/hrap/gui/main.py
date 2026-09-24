@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import multiprocessing
 import os
 import sys
 import traceback
@@ -1531,6 +1532,7 @@ def _prepare_qt_environment() -> None:
 
 
 def main():
+    multiprocessing.freeze_support()  # sweep worker processes in the frozen Windows build
     _prepare_qt_environment()
     try:
         app = QApplication(sys.argv)
