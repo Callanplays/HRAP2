@@ -1,80 +1,53 @@
-# HRAP (HCAT Fork) 1.1.0
+# HRAP2 — HCAT's Hybrid Rocket Analysis Program
 
-**HRAP (HCAT Fork)** is a desktop Hybrid Rocket Analysis Program. It is a fork of the original MATLAB [HRAP](https://github.com/rnickel1/HRAP_Source) by Robert Nickel (University of Tennessee Rocket Engineering Team).
+**The app we develop and run is in [`src/hrap/`](src/hrap/).** It predicts a hybrid motor's burn from tank, injector, fuel-grain, chamber, and nozzle inputs, and displays thrust, pressure, propellant consumption, and mass/center-of-gravity results.
 
-Version **1.1.0** keeps the MATLAB-parity engine and adds tank / thrust-chamber dry mass, length, and start-station inputs for center-of-mass (used by `.eng` / `.rse` export and the motor schematic). The default ballistics loop is still a line-for-line port of the MATLAB sequential Euler integrator. Optional CoolProp / non-cylindrical grain features are labeled as **not** MATLAB-identical.
+The desktop window is named **HRAP (HCAT Fork) 1.1.0**. Its standard engine translates the original MATLAB HRAP calculation sequence. Advanced fluid, chemistry, and grain options change that model. Agreement with MATLAB is a software check, not a guarantee of agreement with a real firing.
 
-## Windows executable
+## Run the app
 
-Download the versioned zip from [Releases](https://github.com/sidbanch/HRAP2/releases) (`HRAP-HCAT-Fork-<version>-windows.zip`). Unzip and run `HRAP.exe`. No Python install is required.
+- **Windows:** download the versioned Windows zip from [Releases](https://github.com/sidbanch/HRAP2/releases), unzip it, and run `HRAP.exe`. For a source checkout, double-click `run_hrap.bat`.
+- **macOS/Linux source installations:** use Python 3.10+ in a virtual environment, install this project with `python -m pip install -e .`, then run `python -m hrap`.
 
-Later versions use the same naming: `HRAP-HCAT-Fork-<version>-windows.zip` on the matching GitHub Release.
+Enter the motor settings on the left, press **Run**, and inspect the plots and summary. Save/load motor configurations as JSON, import MATLAB `.mat` motor files, or export results as CSV, RSE (OpenRocket/RockSim), and ENG.
 
-To cut a new release: bump `__version__` in `src/hrap/__init__.py`, commit, tag `vX.Y.Z`, and push the tag. GitHub Actions builds the Windows zip and attaches it to the release. Local rebuild: `build_exe.bat`.
+Optional advanced dependencies: `python -m pip install -e ".[advanced]"`.
 
-## Run from source
+## Find your way around
 
-Requires **Python 3.10+**.
+| Location | Purpose |
+| --- | --- |
+| [`src/hrap/gui/`](src/hrap/gui/) | Desktop forms, plots, and motor drawing |
+| [`src/hrap/engine/`](src/hrap/engine/) | Standard tank, fuel, combustion, chamber, and nozzle calculations |
+| [`src/hrap/io/`](src/hrap/io/) | Configuration loading, unit conversion/initialization, propellant data, and exports |
+| [`src/hrap/advanced/`](src/hrap/advanced/) | Additional fluid, chemistry, and grain models |
+| [`src/hrap/resources/`](src/hrap/resources/) | Data and example motors shipped with the app |
+| [`tests/`](tests/) | Automated checks and saved MATLAB comparison traces |
+| [`scripts/`](scripts/) | Maintenance tools for converting reference data and regenerating MATLAB traces |
+| [`packaging/`](packaging/) | Build the Windows release |
+| [`reference/`](reference/) | Inherited MATLAB and Python implementations, kept for comparison and feature research |
 
-### Windows
+When you press Run, `gui/main.py` collects inputs, `io/config.py` prepares the initial state, and `engine/sim.py` advances it through the burn. The GUI displays the recorded results; `io/export.py` writes them to files.
 
-Double-click `run_hrap.bat` (or `Run HRAP.bat` in the parent folder). The first launch installs dependencies if needed.
+**The reference folders are not alternative entry points for this app.** Upstream's Python implementation also uses the package and command name `hrap`; do not install it in the same environment. See [the reference guide](reference/README.md) for their origin and how to study upstream changes.
 
-### From a terminal
+## Develop and verify
 
-```
-cd HRAP2
-python -m pip install -e .
-python -m hrap
-```
+Start with [the development guide](docs/development.md) for setup, checks, data regeneration, and releases.
 
-The window title is **HRAP (HCAT Fork) 1.1.0**. Edit the motor on the left, press **Run**, then inspect traces, the scaled motor schematic, and the performance summary on the right.
-
-## Batch / CLI
-
-```
-python -m hrap.cli path/to/motor.json -o HRAP_output.csv
-hrap-compare path/to/motor.json tests/golden/example_98mm_python.csv
-```
-
-Save and load motors as JSON, import original MATLAB `.mat` configs, and export **CSV**, **RSE** (OpenRocket / RockSim), or **ENG**.
-
-## Optional extras
-
-```
-python -m pip install -e ".[advanced]"
-```
-
-enables CoolProp oxidizers and star-grain geometry. Turning these on in the GUI warns that results will not match original HRAP.
-
-## Tests
-
-```
+```sh
 python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
-Golden traces live in `tests/golden/`. Component tests (NOX, interp2x) and the evaporating-liquid prefix of a full burn match MATLAB to **1e-8**.
+For a command-line simulation:
 
-To regenerate MATLAB comparison CSVs (R2020b or later; Octave can run the same `.m` core files):
-
-```
-cd scripts
-python download_assets.py
-python convert_assets.py
-matlab -batch "make_matlab_golden"
-python -m pytest tests -q
+```sh
+python -m hrap.cli path/to/motor.json -o HRAP_output.csv
 ```
 
-## Repository layout
+## Origin and license
 
-| Path | What it is |
-| --- | --- |
-| `src/hrap/` | Default Python engine + PySide6 GUI |
-| `tests/` | Unit tests and golden CSV traces |
-| `HRAP - Matlab/` | Frozen original MATLAB sources |
-| `HRAP - Python/` | Earlier JAX / Dear PyGui experiment (not the default engine) |
+HCAT's app is based on [HRAP](https://github.com/rnickel1/HRAP_Source), originally developed by Robert Nickel for the University of Tennessee Rocket Engineering Team. The repository retains reference code from that project; the active app is maintained here in `src/hrap`.
 
-## License
-
-GNU GPL v3. See `LICENSE`. This fork remains GPL because it is based on the original HRAP sources.
+[GNU GPL v3](LICENSE). This fork remains GPL because it is based on the original HRAP sources.
